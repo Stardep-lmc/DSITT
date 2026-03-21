@@ -21,6 +21,7 @@ from .backbone.resnet import build_backbone
 from .encoder.deformable_encoder import DeformableTransformerEncoder
 from .decoder.modality_aware_decoder import ModalityAwareDecoder
 from .tracking.mtuq_manager import MTUQManager
+from .tracking.motion_view import MotionViewUpdater, TrajectoryMemoryBank
 from .loss.losses import DSITTLoss
 from .loss.cmc_loss import CMCLoss
 from .decoder.scale_adaptive_attn import scale_diversity_loss
@@ -106,6 +107,12 @@ class DSITTv2(nn.Module):
         )
         self.use_cmc = True  # can be disabled for ablation
 
+        # Motion View Updater (Stage 5)
+        self.motion_updater = MotionViewUpdater(
+            d_model=d_model, max_history=5, n_heads=4,
+        )
+        self.memory_bank = TrajectoryMemoryBank(max_length=5)
+
     def forward_single_frame(
         self,
         img_rgb: torch.Tensor,
@@ -165,6 +172,7 @@ class DSITTv2(nn.Module):
         """
         training = self.training
         self.mtuq_manager.reset()
+        self.memory_bank.reset()
 
         frame_outputs = []
         frame_assignments = []
@@ -176,6 +184,34 @@ class DSITTv2(nn.Module):
             # Forward single frame
             queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params = \
                 self.forward_single_frame(img_rgb, img_ir)
+
+            # Motion view update from trajectory memory
+            # Only track queries benefit from motion history
+            n_track = self.mtuq_manager.num_track_queries
+            if n_track > 0 and self.memory_bank.length > 0:
+                hist_feats, hist_boxes = self.memory_bank.get_history()
+                if hist_feats is not None and hist_feats.shape[2] == n_track:
+                    # Track count matches memory → can use motion updater
+                    q_motion_track = queries['q_motion'][:, :n_track]
+                    q_motion_updated = self.motion_updater(
+                        q_motion_track, hist_feats, hist_boxes
+                    )
+                    queries['q_motion'] = torch.cat([
+                        q_motion_updated,
+                        queries['q_motion'][:, n_track:]
+                    ], dim=1)
+                else:
+                    # Track count changed → reset memory
+                    self.memory_bank.reset()
+
+            # Push track queries to memory (only if we have tracks)
+            if n_track > 0:
+                self.memory_bank.push(
+                    queries['q_fused'][:, :n_track].detach(),
+                    outputs_coord[:, :n_track].detach(),
+                )
+            else:
+                self.memory_bank.reset()
 
             frame_output = {
                 'pred_logits': outputs_class,
