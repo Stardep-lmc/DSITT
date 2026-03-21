@@ -1,0 +1,66 @@
+# DSITT MTUQ Configuration (v2 - dual modality)
+# ===============================================
+# Uses Modality-Aware Decoder with MTUQ queries
+
+model:
+  d_model: 256
+  nhead: 8
+  num_encoder_layers: 6
+  num_decoder_layers: 6
+  dim_feedforward: 1024
+  dropout: 0.1
+  num_feature_levels: 4
+  num_queries: 300
+  num_classes: 7
+  modality_dropout: 0.1    # randomly drop one modality during training
+  version: v2              # use DSITTv2
+
+backbone:
+  name: resnet50
+  pretrained: true
+
+tracking:
+  memory_len: 5
+  p_drop: 0.1
+  p_insert: 0.1
+
+loss:
+  cls_weight: 2.0
+  box_l1_weight: 5.0
+  box_loss_type: nwd
+  giou_weight: 2.0
+  nwd_constant: 0.1
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+
+train:
+  batch_size: 1
+  clip_length: 2
+  base_lr: 2.0e-4
+  backbone_lr_factor: 0.1
+  weight_decay: 1.0e-4
+  epochs: 200
+  lr_drop_epoch: 100
+  clip_max_norm: 0.1
+  optimizer: adamw
+
+clip_schedule:
+  - epoch: 1
+    clip_length: 2
+  - epoch: 50
+    clip_length: 3
+  - epoch: 90
+    clip_length: 4
+  - epoch: 150
+    clip_length: 5
+
+data:
+  dataset: rgbt_tiny
+  train_split: train
+  test_split: test
+  img_size_min: 800
+  img_size_max: 1536
+  modality: both            # KEY: use both RGB and IR
+
+eval:
+  metrics: [HOTA, MOTA, IDF1, IDS, DetA, AssA]
