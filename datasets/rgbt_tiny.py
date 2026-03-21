@@ -28,7 +28,7 @@ import json
 import glob
 import random
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -42,6 +42,9 @@ class RGBTTinyDataset(Dataset):
 
     Loads video clips (consecutive frames) with annotations including
     bounding boxes, class labels, and track IDs.
+
+    When modality='both', each frame is returned as a (rgb_tensor, ir_tensor) tuple.
+    When modality='ir' or 'rgb', each frame is a single tensor.
     """
 
     # Category mapping for RGBT-Tiny (7 classes)
@@ -56,6 +59,7 @@ class RGBTTinyDataset(Dataset):
         clip_length: int = 2,
         img_size_min: int = 800,
         img_size_max: int = 1536,
+        dummy_img_size: int = 320,     # smaller image size for dummy mode
         transforms: Optional[object] = None,
         sample_interval: int = 1,      # frame sampling interval
         max_sample_interval: int = 5,  # max random interval
@@ -67,14 +71,18 @@ class RGBTTinyDataset(Dataset):
         self.clip_length = clip_length
         self.img_size_min = img_size_min
         self.img_size_max = img_size_max
+        self.dummy_img_size = dummy_img_size
         self.transforms = transforms
         self.sample_interval = sample_interval
         self.max_sample_interval = max_sample_interval
 
         # Load sequence information
         self.sequences = self._load_sequences()
+        self.is_dummy = (len(self.sequences) > 0 and
+                         self.sequences[0].get('is_dummy', False))
         print(f"[RGBTTinyDataset] Loaded {len(self.sequences)} sequences "
-              f"from {split} split, modality={modality}, clip_length={clip_length}")
+              f"from {split} split, modality={modality}, clip_length={clip_length}"
+              f"{' (DUMMY)' if self.is_dummy else ''}")
 
     def _load_sequences(self) -> List[Dict]:
         """Scan dataset directory and load sequence metadata."""
@@ -123,6 +131,7 @@ class RGBTTinyDataset(Dataset):
                 'num_frames': num_frames,
                 'frame_files': frame_files,
                 'annotations': annotations,
+                'is_dummy': False,
             })
 
         if len(sequences) == 0:
@@ -158,7 +167,6 @@ class RGBTTinyDataset(Dataset):
         if ann_file.endswith('.json'):
             with open(ann_file, 'r') as f:
                 data = json.load(f)
-            # Parse JSON format (format may vary, adapt as needed)
             if isinstance(data, list):
                 for item in data:
                     frame_idx = item.get('frame_id', item.get('frame', 0))
@@ -202,7 +210,6 @@ class RGBTTinyDataset(Dataset):
             for f in range(num_frames):
                 annotations[f] = []
                 for t in range(num_targets):
-                    # Random bbox that moves slightly each frame
                     cx = 0.3 + 0.4 * (t / num_targets) + 0.001 * f
                     cy = 0.3 + 0.4 * ((t + 1) / num_targets) + 0.001 * f
                     w = random.uniform(0.01, 0.05)
@@ -220,6 +227,7 @@ class RGBTTinyDataset(Dataset):
                 'num_frames': num_frames,
                 'frame_files': [],
                 'annotations': annotations,
+                'is_dummy': True,
             })
         return sequences
 
@@ -230,12 +238,12 @@ class RGBTTinyDataset(Dataset):
         """Update clip length (for progressive training schedule)."""
         self.clip_length = clip_length
 
-    def __getitem__(self, idx: int) -> Tuple[List[torch.Tensor], List[Dict]]:
+    def __getitem__(self, idx: int) -> Tuple[List, List[Dict]]:
         """
         Sample a video clip from a sequence.
 
         Returns:
-            frames: list of [3, H, W] tensors
+            frames: list of tensors or (rgb_tensor, ir_tensor) tuples
             targets: list of target dicts per frame
         """
         seq = self.sequences[idx % len(self.sequences)]
@@ -254,53 +262,97 @@ class RGBTTinyDataset(Dataset):
         targets = []
 
         for frame_idx in frame_indices:
-            # Load image
+            # Load image(s)
             img = self._load_image(seq, frame_idx)
 
+            # Determine image size for target normalization
+            if self.modality == 'both':
+                if isinstance(img, (tuple, list)):
+                    img_h, img_w = img[0].shape[-2:]
+                else:
+                    img_h, img_w = img.shape[-2:]
+            else:
+                img_h, img_w = img.shape[-2:]
+
             # Get annotations for this frame
-            target = self._get_frame_target(seq, frame_idx, img.shape[-2:])
+            target = self._get_frame_target(seq, frame_idx, (img_h, img_w))
 
             frames.append(img)
             targets.append(target)
 
         return frames, targets
 
-    def _load_image(self, seq: Dict, frame_idx: int) -> torch.Tensor:
-        """Load image for given sequence and frame index."""
-        # Determine which modality to load
-        if self.modality == 'ir' and seq['ir_dir']:
-            img_dir = seq['ir_dir']
-        elif self.modality == 'rgb' and seq['rgb_dir']:
-            img_dir = seq['rgb_dir']
-        elif seq['ir_dir']:
-            img_dir = seq['ir_dir']
-        elif seq['rgb_dir']:
-            img_dir = seq['rgb_dir']
-        else:
-            # Dummy mode: generate random image
-            return torch.randn(3, self.img_size_min, self.img_size_min)
+    def _load_image(self, seq: Dict, frame_idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Load image for given sequence and frame index.
 
-        # Get frame file
+        Returns:
+            modality='ir' or 'rgb': single [3, H, W] tensor
+            modality='both': (rgb_tensor, ir_tensor) tuple of [3, H, W] tensors
+        """
+        is_dummy = seq.get('is_dummy', False)
+
+        if is_dummy:
+            # Dummy mode: generate random images at smaller resolution
+            size = self.dummy_img_size
+            if self.modality == 'both':
+                return (torch.randn(3, size, size), torch.randn(3, size, size))
+            else:
+                return torch.randn(3, size, size)
+
+        # Real data loading
+        if self.modality == 'both':
+            # Load both modalities
+            rgb_img = self._load_single_image(seq['rgb_dir'], seq, frame_idx)
+            ir_img = self._load_single_image(seq['ir_dir'], seq, frame_idx)
+            return (rgb_img, ir_img)
+        elif self.modality == 'rgb' and seq['rgb_dir']:
+            return self._load_single_image(seq['rgb_dir'], seq, frame_idx)
+        elif self.modality == 'ir' and seq['ir_dir']:
+            return self._load_single_image(seq['ir_dir'], seq, frame_idx)
+        elif seq['ir_dir']:
+            return self._load_single_image(seq['ir_dir'], seq, frame_idx)
+        elif seq['rgb_dir']:
+            return self._load_single_image(seq['rgb_dir'], seq, frame_idx)
+        else:
+            # Should not happen with real data
+            size = self.dummy_img_size
+            if self.modality == 'both':
+                return (torch.randn(3, size, size), torch.randn(3, size, size))
+            return torch.randn(3, size, size)
+
+    def _load_single_image(self, img_dir: Optional[str], seq: Dict,
+                           frame_idx: int) -> torch.Tensor:
+        """Load a single image from a directory."""
+        if img_dir is None:
+            return torch.randn(3, self.dummy_img_size, self.dummy_img_size)
+
+        # Try frame_files list first
         if frame_idx < len(seq['frame_files']):
             img_path = seq['frame_files'][frame_idx]
+            # Adjust path for the correct modality directory
+            base_name = os.path.basename(img_path)
+            img_path = os.path.join(img_dir, base_name)
         else:
-            # Try to construct path
+            img_path = None
+
+        # Try to construct path if needed
+        if img_path is None or not os.path.exists(img_path):
             for ext in ['.jpg', '.png']:
-                img_path = os.path.join(img_dir, f'{frame_idx + 1:06d}{ext}')
-                if os.path.exists(img_path):
+                candidate = os.path.join(img_dir, f'{frame_idx + 1:06d}{ext}')
+                if os.path.exists(candidate):
+                    img_path = candidate
                     break
 
-        if os.path.exists(img_path):
+        if img_path and os.path.exists(img_path):
             img = Image.open(img_path).convert('RGB')
-            img = TF.to_tensor(img)  # [3, H, W], values in [0, 1]
-            # Normalize with ImageNet stats
+            img = TF.to_tensor(img)
             img = TF.normalize(img,
                                mean=[0.485, 0.456, 0.406],
                                std=[0.229, 0.224, 0.225])
             return img
         else:
-            # Fallback: random image
-            return torch.randn(3, self.img_size_min, self.img_size_min)
+            return torch.randn(3, self.dummy_img_size, self.dummy_img_size)
 
     def _get_frame_target(self, seq: Dict, frame_idx: int,
                           img_size: Tuple[int, int]) -> Dict:
@@ -324,7 +376,7 @@ class RGBTTinyDataset(Dataset):
 
             # Normalize to [0, 1] if not already
             if x > 1 or y > 1 or w > 1 or h > 1:
-                x, y, w, h = x / W, y / W, w / W, h / H  # rough normalization
+                x, y, w, h = x / W, y / W, w / W, h / H
 
             # Convert from (x, y, w, h) to (cx, cy, w, h)
             cx = x + w / 2
@@ -350,27 +402,39 @@ class RGBTTinyDataset(Dataset):
 def collate_fn(batch):
     """
     Custom collate function for video clips.
-    Each item in batch is (frames, targets) where frames is a list of tensors.
 
+    Handles both single modality (tensor) and dual modality (tuple of tensors).
     Since we use batch_size=1 for video tracking, this is straightforward.
     """
     frames_list, targets_list = zip(*batch)
 
-    # For batch_size=1, just take the first item
-    # For batch_size>1, we'd need padding (not implemented yet)
     if len(frames_list) == 1:
-        frames = [f.unsqueeze(0) for f in frames_list[0]]  # add batch dim
+        # batch_size=1: add batch dimension
+        raw_frames = frames_list[0]
+        if isinstance(raw_frames[0], (tuple, list)):
+            # Dual modality: each frame is (rgb, ir)
+            frames = [(rgb.unsqueeze(0), ir.unsqueeze(0))
+                      for rgb, ir in raw_frames]
+        else:
+            # Single modality: each frame is a tensor
+            frames = [f.unsqueeze(0) for f in raw_frames]
         targets = targets_list[0]
         return frames, targets
 
-    # Batch size > 1: stack frames (requires same size)
+    # Batch size > 1
     clip_length = len(frames_list[0])
+    is_dual = isinstance(frames_list[0][0], (tuple, list))
+
     frames = []
     for t in range(clip_length):
-        frame_batch = torch.stack([frames_list[b][t] for b in range(len(frames_list))])
-        frames.append(frame_batch)
+        if is_dual:
+            rgb_batch = torch.stack([frames_list[b][t][0] for b in range(len(frames_list))])
+            ir_batch = torch.stack([frames_list[b][t][1] for b in range(len(frames_list))])
+            frames.append((rgb_batch, ir_batch))
+        else:
+            frame_batch = torch.stack([frames_list[b][t] for b in range(len(frames_list))])
+            frames.append(frame_batch)
 
-    # Targets remain as list of lists
     targets = []
     for t in range(clip_length):
         targets.append([targets_list[b][t] for b in range(len(frames_list))])
@@ -385,6 +449,7 @@ def build_rgbt_tiny_dataset(
     clip_length: int = 2,
     batch_size: int = 1,
     num_workers: int = 4,
+    dummy_img_size: int = 320,
 ) -> Tuple[Dataset, DataLoader]:
     """Build RGBT-Tiny dataset and dataloader."""
 
@@ -393,6 +458,7 @@ def build_rgbt_tiny_dataset(
         split=split,
         modality=modality,
         clip_length=clip_length,
+        dummy_img_size=dummy_img_size,
     )
 
     dataloader = DataLoader(

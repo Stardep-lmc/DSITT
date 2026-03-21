@@ -24,6 +24,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from models.dsitt import build_dsitt
+from models.dsitt_v2 import build_dsitt_v2
 from datasets.rgbt_tiny import build_rgbt_tiny_dataset
 
 
@@ -94,8 +95,17 @@ def train_one_epoch(
     start_time = time.time()
 
     for batch_idx, (frames, targets) in enumerate(dataloader):
-        # Move to device
-        frames = [f.to(device) for f in frames]
+        # Move to device — handle both single and dual modality
+        if isinstance(frames[0], (list, tuple)):
+            # Dual modality: frames = [(rgb, ir), (rgb, ir), ...]
+            frames_rgb = [f[0].to(device) for f in frames]
+            frames_ir = [f[1].to(device) for f in frames]
+        else:
+            # Single modality or dummy: frames = [tensor, tensor, ...]
+            frames_moved = [f.to(device) for f in frames]
+            frames_rgb = frames_moved
+            frames_ir = frames_moved  # duplicate for v2 compatibility
+
         targets_device = []
         for t in targets:
             targets_device.append({
@@ -103,8 +113,13 @@ def train_one_epoch(
                 for k, v in t.items()
             })
 
-        # Forward
-        loss_dict = model(frames, targets_device)
+        # Forward — handle v1 and v2 API differences
+        if hasattr(model, 'dual_backbone'):
+            # DSITTv2: takes separate RGB and IR frame lists
+            loss_dict = model(frames_rgb, frames_ir, targets_device)
+        else:
+            # DSITTv1: takes single frame list
+            loss_dict = model(frames_rgb, targets_device)
 
         loss = loss_dict['loss']
 
@@ -186,7 +201,13 @@ def main():
 
     # Build model
     print("\n=== Building Model ===")
-    model = build_dsitt(config)
+    model_version = config.get('model', {}).get('version', 'v1')
+    if model_version == 'v2':
+        print("Using DSITTv2 (MTUQ + MAD + SAS + Motion)")
+        model = build_dsitt_v2(config)
+    else:
+        print("Using DSITTv1 (baseline)")
+        model = build_dsitt(config)
     model = model.to(device)
 
     num_params = sum(p.numel() for p in model.parameters()) / 1e6
