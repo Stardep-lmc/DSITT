@@ -23,6 +23,7 @@ from .decoder.modality_aware_decoder import ModalityAwareDecoder
 from .tracking.mtuq_manager import MTUQManager
 from .loss.losses import DSITTLoss
 from .loss.cmc_loss import CMCLoss
+from .decoder.scale_adaptive_attn import scale_diversity_loss
 
 
 class DSITTv2(nn.Module):
@@ -134,15 +135,15 @@ class DSITTv2(nn.Module):
         # 3. Get MTUQ queries
         queries, query_pos = self.mtuq_manager.get_queries(img_rgb.device)
 
-        # 4. MAD decoding
-        queries, outputs_class, outputs_coord, ref_points, gate_weights = \
+        # 4. MAD decoding (with SAS scale params)
+        queries, outputs_class, outputs_coord, ref_points, gate_weights, scale_params = \
             self.decoder(
                 queries, query_pos,
                 memory_rgb, shapes_rgb, starts_rgb,
                 memory_ir, shapes_ir, starts_ir,
             )
 
-        return queries, query_pos, outputs_class, outputs_coord, gate_weights
+        return queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params
 
     def forward(
         self,
@@ -173,7 +174,7 @@ class DSITTv2(nn.Module):
             img_ir = frames_ir[t]
 
             # Forward single frame
-            queries, query_pos, outputs_class, outputs_coord, gate_weights = \
+            queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params = \
                 self.forward_single_frame(img_rgb, img_ir)
 
             frame_output = {
@@ -181,6 +182,7 @@ class DSITTv2(nn.Module):
                 'pred_boxes': outputs_coord,
                 'queries': queries,
                 'gate_weights': gate_weights,
+                'scale_params': scale_params,
             }
             frame_outputs.append(frame_output)
 
@@ -206,6 +208,20 @@ class DSITTv2(nn.Module):
                 )
                 loss_dict['loss'] = loss_dict['loss'] + cmc_dict['loss_cmc']
                 loss_dict.update(cmc_dict)
+
+            # Scale diversity loss (SAS regularization)
+            all_scale_params = [fo['scale_params'] for fo in frame_outputs
+                                if fo['scale_params'] is not None]
+            if all_scale_params:
+                loss_scale_div = sum(
+                    scale_diversity_loss(sp) for sp in all_scale_params
+                ) / len(all_scale_params)
+                loss_dict['loss'] = loss_dict['loss'] + 0.1 * loss_scale_div
+                loss_dict['loss_scale_div'] = loss_scale_div
+
+                # Log average scale param for monitoring
+                avg_scale = torch.cat([sp.mean(dim=1) for sp in all_scale_params]).mean()
+                loss_dict['avg_scale'] = avg_scale
 
             # Add average gate weights for monitoring
             all_gates = []

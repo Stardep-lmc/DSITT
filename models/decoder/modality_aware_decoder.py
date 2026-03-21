@@ -25,6 +25,7 @@ import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, constant_
 
 from ..ops.ms_deform_attn import MSDeformAttn
+from .scale_adaptive_attn import ScaleAdaptiveDeformableAttn, scale_diversity_loss
 
 
 class ModalityAwareDecoderLayer(nn.Module):
@@ -36,9 +37,10 @@ class ModalityAwareDecoderLayer(nn.Module):
     """
 
     def __init__(self, d_model=256, d_ffn=1024, dropout=0.1,
-                 n_levels=4, n_heads=8, n_points=4):
+                 n_levels=4, n_heads=8, n_points=4, use_sas=True):
         super().__init__()
         self.d_model = d_model
+        self.use_sas = use_sas
 
         # Step 1: Self-attention among fused queries
         self.self_attn = nn.MultiheadAttention(
@@ -47,9 +49,18 @@ class ModalityAwareDecoderLayer(nn.Module):
         self.norm_sa = nn.LayerNorm(d_model)
         self.dropout_sa = nn.Dropout(dropout)
 
-        # Step 2: Modality-specific cross-attention (deformable)
-        self.cross_attn_rgb = MSDeformAttn(d_model, n_levels, n_heads, n_points)
-        self.cross_attn_ir = MSDeformAttn(d_model, n_levels, n_heads, n_points)
+        # Step 2: Modality-specific cross-attention
+        # Use Scale-Adaptive attention for tiny target detection
+        if use_sas:
+            self.cross_attn_rgb = ScaleAdaptiveDeformableAttn(
+                d_model, n_levels, n_heads, n_points
+            )
+            self.cross_attn_ir = ScaleAdaptiveDeformableAttn(
+                d_model, n_levels, n_heads, n_points
+            )
+        else:
+            self.cross_attn_rgb = MSDeformAttn(d_model, n_levels, n_heads, n_points)
+            self.cross_attn_ir = MSDeformAttn(d_model, n_levels, n_heads, n_points)
         self.norm_ca_rgb = nn.LayerNorm(d_model)
         self.norm_ca_ir = nn.LayerNorm(d_model)
         self.dropout_ca_rgb = nn.Dropout(dropout)
@@ -122,25 +133,43 @@ class ModalityAwareDecoderLayer(nn.Module):
         q_fused = self.norm_sa(q_fused)
 
         # ======== Step 2: Modality-specific cross-attention ========
-        # RGB view attends to RGB memory
-        q_rgb2 = self.cross_attn_rgb(
-            query=self.with_pos(q_rgb, query_pos),
-            reference_points=reference_points,
-            input_flatten=memory_rgb,
-            input_spatial_shapes=spatial_shapes_rgb,
-            input_level_start_index=level_start_rgb,
-        )
+        scale_params_rgb = None
+        scale_params_ir = None
+
+        if self.use_sas:
+            # SAS returns (output, scale_param)
+            q_rgb2, scale_params_rgb = self.cross_attn_rgb(
+                query=self.with_pos(q_rgb, query_pos),
+                reference_points=reference_points,
+                input_flatten=memory_rgb,
+                input_spatial_shapes=spatial_shapes_rgb,
+                input_level_start_index=level_start_rgb,
+            )
+            q_ir2, scale_params_ir = self.cross_attn_ir(
+                query=self.with_pos(q_ir, query_pos),
+                reference_points=reference_points,
+                input_flatten=memory_ir,
+                input_spatial_shapes=spatial_shapes_ir,
+                input_level_start_index=level_start_ir,
+            )
+        else:
+            q_rgb2 = self.cross_attn_rgb(
+                query=self.with_pos(q_rgb, query_pos),
+                reference_points=reference_points,
+                input_flatten=memory_rgb,
+                input_spatial_shapes=spatial_shapes_rgb,
+                input_level_start_index=level_start_rgb,
+            )
+            q_ir2 = self.cross_attn_ir(
+                query=self.with_pos(q_ir, query_pos),
+                reference_points=reference_points,
+                input_flatten=memory_ir,
+                input_spatial_shapes=spatial_shapes_ir,
+                input_level_start_index=level_start_ir,
+            )
+
         q_rgb = q_rgb + self.dropout_ca_rgb(q_rgb2)
         q_rgb = self.norm_ca_rgb(q_rgb)
-
-        # IR view attends to IR memory
-        q_ir2 = self.cross_attn_ir(
-            query=self.with_pos(q_ir, query_pos),
-            reference_points=reference_points,
-            input_flatten=memory_ir,
-            input_spatial_shapes=spatial_shapes_ir,
-            input_level_start_index=level_start_ir,
-        )
         q_ir = q_ir + self.dropout_ca_ir(q_ir2)
         q_ir = self.norm_ca_ir(q_ir)
 
@@ -180,12 +209,17 @@ class ModalityAwareDecoderLayer(nn.Module):
         q_fused = q_fused + self.dropout_ffn(q_fused2)
         q_fused = self.norm_ffn(q_fused)
 
+        # Average scale params from both modalities
+        scale_params = None
+        if scale_params_rgb is not None and scale_params_ir is not None:
+            scale_params = (scale_params_rgb + scale_params_ir) / 2.0
+
         return {
             'q_rgb': q_rgb,
             'q_ir': q_ir,
             'q_motion': q_motion,
             'q_fused': q_fused,
-        }, gate_weights
+        }, gate_weights, scale_params
 
 
 class ModalityAwareDecoder(nn.Module):
@@ -253,14 +287,17 @@ class ModalityAwareDecoder(nn.Module):
         )
 
         all_gate_weights = []
+        all_scale_params = []
 
         for layer in self.layers:
-            queries, gate_weights = layer(
+            queries, gate_weights, scale_params = layer(
                 queries, query_pos, ref_points_input,
                 memory_rgb, spatial_shapes_rgb, level_start_rgb,
                 memory_ir, spatial_shapes_ir, level_start_ir,
             )
             all_gate_weights.append(gate_weights)
+            if scale_params is not None:
+                all_scale_params.append(scale_params)
 
         # Predictions from fused query
         q_fused = queries['q_fused']
@@ -271,7 +308,12 @@ class ModalityAwareDecoder(nn.Module):
             bbox_offset[..., 2:].sigmoid()
         ], dim=-1)
 
-        return queries, outputs_class, outputs_coord, reference_points, all_gate_weights
+        # Average scale params across layers for loss computation
+        avg_scale_params = None
+        if all_scale_params:
+            avg_scale_params = torch.stack(all_scale_params).mean(0)  # [B, N_q, 1]
+
+        return queries, outputs_class, outputs_coord, reference_points, all_gate_weights, avg_scale_params
 
 
 class MLP(nn.Module):
