@@ -14,6 +14,8 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from typing import Dict, List, Optional, Tuple
 
+from ..loss.nwd_loss import nwd_matching_cost
+
 
 class QueryInteractionModule(nn.Module):
     """
@@ -90,13 +92,20 @@ class TrajectoryAwareLabelAssignment:
 
     For detect queries: Hungarian matching with newborn targets only.
     For track queries: identity-consistent assignment from previous frame.
+
+    Supports two matching cost modes:
+    - 'giou': Standard GIoU cost (default)
+    - 'nwd': NWD cost (better for small targets, smoother matching)
     """
 
     def __init__(self, cls_weight: float = 2.0, l1_weight: float = 5.0,
-                 giou_weight: float = 2.0):
+                 giou_weight: float = 2.0, match_cost_type: str = 'giou',
+                 nwd_constant: float = 4.0):
         self.cls_weight = cls_weight
         self.l1_weight = l1_weight
         self.giou_weight = giou_weight
+        self.match_cost_type = match_cost_type
+        self.nwd_constant = nwd_constant
 
     @torch.no_grad()
     def assign(
@@ -188,14 +197,21 @@ class TrajectoryAwareLabelAssignment:
             cost_l1 = torch.cdist(
                 detect_query_outputs_coord, newborn_gt_boxes, p=1
             )
-            cost_giou = -self._generalized_box_iou(
-                detect_query_outputs_coord, newborn_gt_boxes
-            )
+
+            if self.match_cost_type == 'nwd':
+                cost_box = nwd_matching_cost(
+                    detect_query_outputs_coord, newborn_gt_boxes,
+                    constant=self.nwd_constant
+                )
+            else:
+                cost_box = -self._generalized_box_iou(
+                    detect_query_outputs_coord, newborn_gt_boxes
+                )
 
             cost_matrix = (
                 self.cls_weight * cost_class +
                 self.l1_weight * cost_l1 +
-                self.giou_weight * cost_giou
+                self.giou_weight * cost_box
             )
 
             # Hungarian matching
@@ -276,7 +292,8 @@ class TrackQueryManager(nn.Module):
     """
 
     def __init__(self, d_model: int = 256, num_queries: int = 300,
-                 p_drop: float = 0.1, p_insert: float = 0.1):
+                 p_drop: float = 0.1, p_insert: float = 0.1,
+                 match_cost_type: str = 'giou', nwd_constant: float = 4.0):
         super().__init__()
         self.d_model = d_model
         self.num_queries = num_queries
@@ -288,8 +305,11 @@ class TrackQueryManager(nn.Module):
         # QIM
         self.qim = QueryInteractionModule(d_model, p_drop, p_insert)
 
-        # TALA
-        self.tala = TrajectoryAwareLabelAssignment()
+        # TALA (with configurable matching cost)
+        self.tala = TrajectoryAwareLabelAssignment(
+            match_cost_type=match_cost_type,
+            nwd_constant=nwd_constant,
+        )
 
         # State
         self._track_queries = None       # [1, N_track, d_model]

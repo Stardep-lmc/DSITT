@@ -1,0 +1,73 @@
+# DSITT NWD Configuration
+# =======================
+# Inherits from dsitt_base.yaml with NWD loss replacing GIoU
+
+# Model (same as base)
+model:
+  d_model: 256
+  nhead: 8
+  num_encoder_layers: 6
+  num_decoder_layers: 6
+  dim_feedforward: 1024
+  dropout: 0.1
+  num_feature_levels: 4
+  num_queries: 300
+  num_classes: 7
+
+# Backbone (same as base)
+backbone:
+  name: resnet50
+  pretrained: true
+  return_layers: [1, 2, 3, 4]
+
+# Tracking
+tracking:
+  memory_len: 5
+  p_drop: 0.1
+  p_insert: 0.1
+
+# Loss — KEY CHANGE: NWD replaces GIoU
+loss:
+  cls_weight: 2.0
+  box_l1_weight: 5.0
+  box_loss_type: nwd          # 'giou' or 'nwd'
+  giou_weight: 2.0            # weight for box regression loss (NWD or GIoU)
+  nwd_constant: 0.1           # normalization constant C for NWD (tuned for [0,1] coords)
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+
+# Training (same as base)
+train:
+  batch_size: 1
+  clip_length: 2
+  base_lr: 2.0e-4
+  backbone_lr_factor: 0.1
+  weight_decay: 1.0e-4
+  epochs: 200
+  lr_drop_epoch: 100
+  clip_max_norm: 0.1
+  optimizer: adamw
+
+# Training schedule
+clip_schedule:
+  - epoch: 1
+    clip_length: 2
+  - epoch: 50
+    clip_length: 3
+  - epoch: 90
+    clip_length: 4
+  - epoch: 150
+    clip_length: 5
+
+# Data
+data:
+  dataset: rgbt_tiny
+  train_split: train
+  test_split: test
+  img_size_min: 800
+  img_size_max: 1536
+  modality: ir
+
+# Evaluation
+eval:
+  metrics: [HOTA, MOTA, IDF1, IDS, DetA, AssA]

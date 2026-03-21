@@ -122,7 +122,10 @@ def train_one_epoch(
         total_loss += loss.item()
         total_cls += loss_dict['loss_cls'].item() if isinstance(loss_dict['loss_cls'], torch.Tensor) else loss_dict['loss_cls']
         total_l1 += loss_dict['loss_l1'].item() if isinstance(loss_dict['loss_l1'], torch.Tensor) else loss_dict['loss_l1']
-        total_giou += loss_dict['loss_giou'].item() if isinstance(loss_dict['loss_giou'], torch.Tensor) else loss_dict['loss_giou']
+        # Support both GIoU and NWD loss keys
+        box_loss_key = 'loss_nwd' if 'loss_nwd' in loss_dict else 'loss_giou'
+        box_loss_val = loss_dict[box_loss_key]
+        total_giou += box_loss_val.item() if isinstance(box_loss_val, torch.Tensor) else box_loss_val
         num_batches += 1
         global_step += 1
 
@@ -130,18 +133,19 @@ def train_one_epoch(
         if (batch_idx + 1) % print_freq == 0 or batch_idx == 0:
             elapsed = time.time() - start_time
             avg_loss = total_loss / num_batches
+            box_loss_name = 'nwd' if 'loss_nwd' in loss_dict else 'giou'
             print(f"  Epoch [{epoch}] Iter [{batch_idx + 1}/{len(dataloader)}] "
                   f"Loss: {loss.item():.4f} (avg: {avg_loss:.4f}) "
                   f"cls: {loss_dict['loss_cls']:.4f} "
                   f"l1: {loss_dict['loss_l1']:.4f} "
-                  f"giou: {loss_dict['loss_giou']:.4f} "
+                  f"{box_loss_name}: {box_loss_val:.4f} "
                   f"Time: {elapsed:.1f}s")
 
             if writer is not None:
                 writer.add_scalar('train/loss', loss.item(), global_step)
                 writer.add_scalar('train/loss_cls', total_cls / num_batches, global_step)
                 writer.add_scalar('train/loss_l1', total_l1 / num_batches, global_step)
-                writer.add_scalar('train/loss_giou', total_giou / num_batches, global_step)
+                writer.add_scalar(f'train/loss_{box_loss_name}', total_giou / num_batches, global_step)
                 writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], global_step)
 
     avg_loss = total_loss / max(num_batches, 1)

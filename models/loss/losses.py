@@ -2,16 +2,19 @@
 Loss functions for DSITT.
 Implements:
 - Focal Loss for classification
-- L1 Loss + GIoU Loss for bounding box regression
+- L1 Loss + GIoU Loss / NWD Loss for bounding box regression
 - Collective Average Loss (CAL) for multi-frame normalization
 
 Reference: DETR, Deformable DETR, MOTR
+NWD Reference: A Normalized Gaussian Wasserstein Distance for Tiny Object Detection (AAAI 2022)
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Optional
+
+from .nwd_loss import nwd_loss
 
 
 def sigmoid_focal_loss(inputs, targets, num_boxes, alpha=0.25, gamma=2.0):
@@ -93,6 +96,10 @@ class DSITTLoss(nn.Module):
     Collective Average Loss (CAL) for DSITT.
     Collects losses across all frames in a video clip and normalizes
     by total number of targets.
+
+    Supports two box regression modes:
+    - 'giou': Standard GIoU loss (default, from Deformable DETR)
+    - 'nwd': Normalized Wasserstein Distance loss (better for small targets)
     """
 
     def __init__(self, num_classes: int = 7,
@@ -100,14 +107,18 @@ class DSITTLoss(nn.Module):
                  l1_weight: float = 5.0,
                  giou_weight: float = 2.0,
                  focal_alpha: float = 0.25,
-                 focal_gamma: float = 2.0):
+                 focal_gamma: float = 2.0,
+                 box_loss_type: str = 'giou',
+                 nwd_constant: float = 4.0):
         super().__init__()
         self.num_classes = num_classes
         self.cls_weight = cls_weight
         self.l1_weight = l1_weight
-        self.giou_weight = giou_weight
+        self.giou_weight = giou_weight  # also used as nwd_weight when box_loss_type='nwd'
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
+        self.box_loss_type = box_loss_type
+        self.nwd_constant = nwd_constant
 
     def forward(
         self,
@@ -172,11 +183,20 @@ class DSITTLoss(nn.Module):
             gt_matched_boxes = gt_boxes[matched_g]
 
             l1_loss = F.l1_loss(pred_matched_boxes, gt_matched_boxes, reduction='mean')
-            giou_loss = generalized_box_iou_loss(pred_matched_boxes, gt_matched_boxes)
+
+            if self.box_loss_type == 'nwd':
+                box_reg_loss = nwd_loss(
+                    pred_matched_boxes, gt_matched_boxes,
+                    constant=self.nwd_constant
+                )
+            else:
+                box_reg_loss = generalized_box_iou_loss(
+                    pred_matched_boxes, gt_matched_boxes
+                )
 
             total_cls_loss += cls_loss * num_matched
             total_l1_loss += l1_loss * num_matched
-            total_giou_loss += giou_loss * num_matched
+            total_giou_loss += box_reg_loss * num_matched
 
         # Normalize by total targets (Collective Average Loss)
         total_targets = max(total_targets, 1)
@@ -191,9 +211,12 @@ class DSITTLoss(nn.Module):
             self.giou_weight * loss_giou
         )
 
+        # Use descriptive key based on loss type
+        box_loss_key = 'loss_nwd' if self.box_loss_type == 'nwd' else 'loss_giou'
+
         return {
             'loss': total_loss,
             'loss_cls': loss_cls,
             'loss_l1': loss_l1,
-            'loss_giou': loss_giou,
+            box_loss_key: loss_giou,
         }

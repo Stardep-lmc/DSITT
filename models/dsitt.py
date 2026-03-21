@@ -43,6 +43,8 @@ class DSITT(nn.Module):
         backbone_pretrained: bool = True,
         p_drop: float = 0.1,
         p_insert: float = 0.1,
+        box_loss_type: str = 'giou',
+        nwd_constant: float = 4.0,
     ):
         super().__init__()
 
@@ -76,16 +78,22 @@ class DSITT(nn.Module):
             num_classes=num_classes,
         )
 
-        # Track Query Manager
+        # Track Query Manager (with NWD-aware matching when configured)
         self.track_manager = TrackQueryManager(
             d_model=d_model,
             num_queries=num_queries,
             p_drop=p_drop,
             p_insert=p_insert,
+            match_cost_type=box_loss_type,
+            nwd_constant=nwd_constant,
         )
 
-        # Loss
-        self.criterion = DSITTLoss(num_classes=num_classes)
+        # Loss (with NWD support)
+        self.criterion = DSITTLoss(
+            num_classes=num_classes,
+            box_loss_type=box_loss_type,
+            nwd_constant=nwd_constant,
+        )
 
     def forward_single_frame(
         self,
@@ -190,6 +198,8 @@ def build_dsitt(config: Optional[Dict] = None) -> DSITT:
     model_cfg = config.get('model', {})
     tracking_cfg = config.get('tracking', {})
 
+    loss_cfg = config.get('loss', {})
+
     return DSITT(
         d_model=model_cfg.get('d_model', 256),
         nhead=model_cfg.get('nhead', 8),
@@ -203,4 +213,6 @@ def build_dsitt(config: Optional[Dict] = None) -> DSITT:
         backbone_pretrained=True,
         p_drop=tracking_cfg.get('p_drop', 0.1),
         p_insert=tracking_cfg.get('p_insert', 0.1),
+        box_loss_type=loss_cfg.get('box_loss_type', 'giou'),
+        nwd_constant=loss_cfg.get('nwd_constant', 4.0),
     )
