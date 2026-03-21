@@ -1,0 +1,5 @@
+*.pth
+outputs/
+__pycache__/
+*.pyc
+data/

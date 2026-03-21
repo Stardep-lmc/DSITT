@@ -1,0 +1,71 @@
+# DSITT Base Configuration
+# ========================
+
+# Model
+model:
+  d_model: 256
+  nhead: 8
+  num_encoder_layers: 6
+  num_decoder_layers: 6
+  dim_feedforward: 1024
+  dropout: 0.1
+  num_feature_levels: 4
+  num_queries: 300
+  num_classes: 7  # ship, car, cyclist, pedestrian, bus, drone, plane
+
+# Backbone
+backbone:
+  name: resnet50
+  pretrained: true
+  return_layers: [1, 2, 3, 4]  # C2, C3, C4, C5
+  # Dual stream will be enabled in dsitt_mtuq.yaml
+
+# Tracking
+tracking:
+  memory_len: 5
+  p_drop: 0.1      # probability to drop track queries
+  p_insert: 0.1    # probability to insert fake track queries
+
+# Loss
+loss:
+  cls_weight: 2.0
+  box_l1_weight: 5.0
+  box_giou_weight: 2.0  # will be replaced by NWD in dsitt_nwd.yaml
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+
+# Training
+train:
+  batch_size: 1
+  clip_length: 2          # initial clip length, grows during training
+  base_lr: 2.0e-4
+  backbone_lr_factor: 0.1
+  weight_decay: 1.0e-4
+  epochs: 200
+  lr_drop_epoch: 100
+  clip_max_norm: 0.1       # gradient clipping
+  optimizer: adamw
+
+# Training schedule for clip length
+clip_schedule:
+  - epoch: 1
+    clip_length: 2
+  - epoch: 50
+    clip_length: 3
+  - epoch: 90
+    clip_length: 4
+  - epoch: 150
+    clip_length: 5
+
+# Data
+data:
+  dataset: rgbt_tiny
+  train_split: train    # 85 sequences
+  test_split: test      # 30 sequences
+  img_size_min: 800
+  img_size_max: 1536
+  modality: ir           # 'ir', 'rgb', or 'both'
+
+# Evaluation
+eval:
+  metrics: [HOTA, MOTA, IDF1, IDS, DetA, AssA]
