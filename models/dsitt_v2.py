@@ -22,6 +22,7 @@ from .encoder.deformable_encoder import DeformableTransformerEncoder
 from .decoder.modality_aware_decoder import ModalityAwareDecoder
 from .tracking.mtuq_manager import MTUQManager
 from .loss.losses import DSITTLoss
+from .loss.cmc_loss import CMCLoss
 
 
 class DSITTv2(nn.Module):
@@ -95,6 +96,14 @@ class DSITTv2(nn.Module):
             box_loss_type=box_loss_type,
             nwd_constant=nwd_constant,
         )
+
+        # CMC Loss (cross-modal consistency)
+        self.cmc_criterion = CMCLoss(
+            consistency_weight=1.0,
+            contrastive_weight=0.5,
+            temperature=0.07,
+        )
+        self.use_cmc = True  # can be disabled for ablation
 
     def forward_single_frame(
         self,
@@ -187,6 +196,16 @@ class DSITTv2(nn.Module):
         if training:
             valid_assignments = [a for a in frame_assignments if a is not None]
             loss_dict = self.criterion(frame_outputs, targets, valid_assignments)
+
+            # CMC Loss
+            if self.use_cmc and len(valid_assignments) > 0:
+                cmc_dict = self.cmc_criterion(
+                    frame_outputs, valid_assignments,
+                    class_head=self.decoder.class_head,
+                    bbox_head=self.decoder.bbox_head,
+                )
+                loss_dict['loss'] = loss_dict['loss'] + cmc_dict['loss_cmc']
+                loss_dict.update(cmc_dict)
 
             # Add average gate weights for monitoring
             all_gates = []
