@@ -193,7 +193,9 @@ class TrajectoryAwareLabelAssignment:
             newborn_gt_boxes = gt_boxes[newborn_gt_indices]
 
             # Compute matching cost
-            cost_class = -detect_query_outputs_class[:, newborn_gt_labels].softmax(-1)
+            # Use sigmoid (consistent with focal loss) then select GT class probabilities
+            out_prob = detect_query_outputs_class.sigmoid()  # [N_detect, num_classes]
+            cost_class = -out_prob[:, newborn_gt_labels]  # [N_detect, num_newborn]
             cost_l1 = torch.cdist(
                 detect_query_outputs_coord, newborn_gt_boxes, p=1
             )
