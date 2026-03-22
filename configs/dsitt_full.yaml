@@ -59,12 +59,10 @@ train:
 clip_schedule:
   - epoch: 1
     clip_length: 2
-  - epoch: 50
-    clip_length: 3
-  - epoch: 90
-    clip_length: 4
-  - epoch: 150
-    clip_length: 5
+# Note: clip_length > 2 causes OOM on 32GB GPU with dual-stream 640x512
+# For single-stream or smaller images, longer clips can be enabled:
+#  - epoch: 50
+#    clip_length: 3
 
 data:
   dataset: rgbt_tiny

@@ -3,8 +3,8 @@
 DSITT Training Script.
 
 Usage:
-    python tools/train.py --config configs/dsitt_base.yaml
-    python tools/train.py --config configs/dsitt_base.yaml --data_root /path/to/rgbt_tiny
+    python tools/train.py --config configs/dsitt_full.yaml --data_root data/rgbt_tiny --epochs 200
+    python tools/train.py --config configs/dsitt_full.yaml --data_root data/rgbt_tiny --epochs 200 --amp
 
 For development without dataset:
     python tools/train.py --dummy --epochs 5 --print_freq 1
@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import torch.nn as nn
+from torch.cuda.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 
 from models.dsitt import build_dsitt
@@ -50,6 +51,10 @@ def parse_args():
                         help='Save checkpoint frequency (epochs)')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to use')
+    parser.add_argument('--amp', action='store_true',
+                        help='Use automatic mixed precision (fp16)')
+    parser.add_argument('--num_workers', type=int, default=2,
+                        help='Dataloader num_workers')
     return parser.parse_args()
 
 
@@ -83,6 +88,8 @@ def train_one_epoch(
     print_freq: int = 50,
     writer: SummaryWriter = None,
     global_step: int = 0,
+    use_amp: bool = False,
+    scaler: GradScaler = None,
 ) -> int:
     """Train for one epoch."""
     model.train()
@@ -104,7 +111,7 @@ def train_one_epoch(
             # Single modality or dummy: frames = [tensor, tensor, ...]
             frames_moved = [f.to(device) for f in frames]
             frames_rgb = frames_moved
-            frames_ir = frames_moved  # duplicate for v2 compatibility
+            frames_ir = frames_moved
 
         targets_device = []
         for t in targets:
@@ -113,31 +120,39 @@ def train_one_epoch(
                 for k, v in t.items()
             })
 
-        # Forward — handle v1 and v2 API differences
-        if hasattr(model, 'dual_backbone'):
-            # DSITTv2: takes separate RGB and IR frame lists
-            loss_dict = model(frames_rgb, frames_ir, targets_device)
-        else:
-            # DSITTv1: takes single frame list
-            loss_dict = model(frames_rgb, targets_device)
-
-        loss = loss_dict['loss']
-
-        # Backward
+        # Forward with optional AMP
         optimizer.zero_grad()
-        loss.backward()
 
-        # Gradient clipping
-        if max_norm > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        if use_amp and scaler is not None:
+            with autocast():
+                if hasattr(model, 'dual_backbone'):
+                    loss_dict = model(frames_rgb, frames_ir, targets_device)
+                else:
+                    loss_dict = model(frames_rgb, targets_device)
+                loss = loss_dict['loss']
 
-        optimizer.step()
+            scaler.scale(loss).backward()
+            if max_norm > 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            if hasattr(model, 'dual_backbone'):
+                loss_dict = model(frames_rgb, frames_ir, targets_device)
+            else:
+                loss_dict = model(frames_rgb, targets_device)
+            loss = loss_dict['loss']
+
+            loss.backward()
+            if max_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            optimizer.step()
 
         # Accumulate stats
         total_loss += loss.item()
         total_cls += loss_dict['loss_cls'].item() if isinstance(loss_dict['loss_cls'], torch.Tensor) else loss_dict['loss_cls']
         total_l1 += loss_dict['loss_l1'].item() if isinstance(loss_dict['loss_l1'], torch.Tensor) else loss_dict['loss_l1']
-        # Support both GIoU and NWD loss keys
         box_loss_key = 'loss_nwd' if 'loss_nwd' in loss_dict else 'loss_giou'
         box_loss_val = loss_dict[box_loss_key]
         total_giou += box_loss_val.item() if isinstance(box_loss_val, torch.Tensor) else box_loss_val
@@ -178,9 +193,6 @@ def main():
     data_cfg = config.get('data', {})
     clip_schedule = config.get('clip_schedule', [
         {'epoch': 1, 'clip_length': 2},
-        {'epoch': 50, 'clip_length': 3},
-        {'epoch': 90, 'clip_length': 4},
-        {'epoch': 150, 'clip_length': 5},
     ])
 
     # Override with command line args
@@ -191,6 +203,7 @@ def main():
     # Device
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
+    print(f"AMP: {'enabled' if args.amp else 'disabled'}")
 
     # Output directory
     os.makedirs(args.output_dir, exist_ok=True)
@@ -218,6 +231,7 @@ def main():
     print("\n=== Building Dataset ===")
     data_root = args.data_root if not args.dummy else 'data/nonexistent'
     modality = data_cfg.get('modality', 'ir')
+    num_workers = 0 if args.dummy else args.num_workers
 
     dataset, dataloader = build_rgbt_tiny_dataset(
         data_root=data_root,
@@ -225,7 +239,7 @@ def main():
         modality=modality,
         clip_length=2,
         batch_size=1,
-        num_workers=0 if args.dummy else 4,
+        num_workers=num_workers,
     )
 
     # Optimizer
@@ -248,6 +262,9 @@ def main():
     lr_drop = train_cfg.get('lr_drop_epoch', 100)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, lr_drop, gamma=0.1)
 
+    # AMP scaler
+    scaler = GradScaler() if args.amp else None
+
     # Resume from checkpoint
     start_epoch = 1
     global_step = 0
@@ -259,10 +276,12 @@ def main():
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         start_epoch = checkpoint['epoch'] + 1
         global_step = checkpoint.get('global_step', 0)
+        if scaler is not None and 'scaler' in checkpoint:
+            scaler.load_state_dict(checkpoint['scaler'])
         print(f"Resumed at epoch {start_epoch}")
 
     # Training loop
-    print(f"\n=== Training for {epochs} epochs ===")
+    print(f"\n=== Training for {epochs} epochs (from epoch {start_epoch}) ===")
     print(f"LR: {lr}, LR drop at epoch {lr_drop}")
     print(f"Clip schedule: {clip_schedule}")
     print()
@@ -279,7 +298,8 @@ def main():
         global_step = train_one_epoch(
             model, dataloader, optimizer, device, epoch,
             max_norm=max_norm, print_freq=args.print_freq,
-            writer=writer, global_step=global_step
+            writer=writer, global_step=global_step,
+            use_amp=args.amp, scaler=scaler,
         )
 
         # Step LR scheduler
@@ -295,6 +315,8 @@ def main():
                 'global_step': global_step,
                 'config': config,
             }
+            if scaler is not None:
+                checkpoint['scaler'] = scaler.state_dict()
             save_path = os.path.join(
                 args.output_dir, 'checkpoints', f'checkpoint_{epoch:04d}.pth'
             )
