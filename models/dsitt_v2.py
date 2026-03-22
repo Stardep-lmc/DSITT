@@ -142,15 +142,15 @@ class DSITTv2(nn.Module):
         # 3. Get MTUQ queries
         queries, query_pos = self.mtuq_manager.get_queries(img_rgb.device)
 
-        # 4. MAD decoding (with SAS scale params)
-        queries, outputs_class, outputs_coord, ref_points, gate_weights, scale_params = \
+        # 4. MAD decoding (with SAS scale params + auxiliary outputs)
+        queries, outputs_class, outputs_coord, ref_points, gate_weights, scale_params, aux_cls, aux_coord = \
             self.decoder(
                 queries, query_pos,
                 memory_rgb, shapes_rgb, starts_rgb,
                 memory_ir, shapes_ir, starts_ir,
             )
 
-        return queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params
+        return queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params, aux_cls, aux_coord
 
     def forward(
         self,
@@ -182,7 +182,7 @@ class DSITTv2(nn.Module):
             img_ir = frames_ir[t]
 
             # Forward single frame
-            queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params = \
+            queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params, aux_cls, aux_coord = \
                 self.forward_single_frame(img_rgb, img_ir)
 
             # Motion view update from trajectory memory
@@ -219,6 +219,8 @@ class DSITTv2(nn.Module):
                 'queries': queries,
                 'gate_weights': gate_weights,
                 'scale_params': scale_params,
+                'aux_outputs_class': aux_cls,
+                'aux_outputs_coord': aux_coord,
             }
             frame_outputs.append(frame_output)
 

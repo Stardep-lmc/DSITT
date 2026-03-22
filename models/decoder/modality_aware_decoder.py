@@ -288,8 +288,10 @@ class ModalityAwareDecoder(nn.Module):
 
         all_gate_weights = []
         all_scale_params = []
+        aux_outputs_class = []
+        aux_outputs_coord = []
 
-        for layer in self.layers:
+        for layer_idx, layer in enumerate(self.layers):
             queries, gate_weights, scale_params = layer(
                 queries, query_pos, ref_points_input,
                 memory_rgb, spatial_shapes_rgb, level_start_rgb,
@@ -299,21 +301,27 @@ class ModalityAwareDecoder(nn.Module):
             if scale_params is not None:
                 all_scale_params.append(scale_params)
 
-        # Predictions from fused query
-        q_fused = queries['q_fused']
-        outputs_class = self.class_head(q_fused)
-        bbox_offset = self.bbox_head(q_fused)
-        outputs_coord = torch.cat([
-            (reference_points + bbox_offset[..., :2]).sigmoid(),
-            bbox_offset[..., 2:].sigmoid()
-        ], dim=-1)
+            # Auxiliary predictions from intermediate layers
+            q_fused_l = queries['q_fused']
+            cls_l = self.class_head(q_fused_l)
+            bbox_off_l = self.bbox_head(q_fused_l)
+            coord_l = torch.cat([
+                (reference_points + bbox_off_l[..., :2]).sigmoid(),
+                bbox_off_l[..., 2:].sigmoid()
+            ], dim=-1)
+            aux_outputs_class.append(cls_l)
+            aux_outputs_coord.append(coord_l)
+
+        # Final predictions = last layer's predictions
+        outputs_class = aux_outputs_class[-1]
+        outputs_coord = aux_outputs_coord[-1]
 
         # Average scale params across layers for loss computation
         avg_scale_params = None
         if all_scale_params:
-            avg_scale_params = torch.stack(all_scale_params).mean(0)  # [B, N_q, 1]
+            avg_scale_params = torch.stack(all_scale_params).mean(0)
 
-        return queries, outputs_class, outputs_coord, reference_points, all_gate_weights, avg_scale_params
+        return queries, outputs_class, outputs_coord, reference_points, all_gate_weights, avg_scale_params, aux_outputs_class, aux_outputs_coord
 
 
 class MLP(nn.Module):

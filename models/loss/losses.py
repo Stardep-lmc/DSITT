@@ -214,9 +214,65 @@ class DSITTLoss(nn.Module):
         # Use descriptive key based on loss type
         box_loss_key = 'loss_nwd' if self.box_loss_type == 'nwd' else 'loss_giou'
 
+        # Auxiliary decoding losses (from intermediate decoder layers)
+        device = loss_cls.device if isinstance(loss_cls, torch.Tensor) else (
+            frame_outputs[0]['pred_logits'].device
+        )
+        aux_loss = torch.tensor(0.0, device=device)
+        num_aux_layers = 0
+        for output, target, assignment in zip(
+            frame_outputs, frame_targets, frame_assignments
+        ):
+            aux_cls_list = output.get('aux_outputs_class', [])
+            aux_coord_list = output.get('aux_outputs_coord', [])
+            matched_q = assignment['matched_query_indices']
+            matched_g = assignment['matched_gt_indices']
+
+            if len(matched_q) == 0 or len(aux_cls_list) == 0:
+                continue
+
+            gt_labels = target['labels']
+            gt_boxes = target['boxes']
+
+            # Apply loss to all intermediate layers except the last (already counted above)
+            for layer_idx in range(len(aux_cls_list) - 1):
+                aux_cls = aux_cls_list[layer_idx][0]  # [N_q, C]
+                aux_coord = aux_coord_list[layer_idx][0]  # [N_q, 4]
+
+                # Classification loss
+                target_onehot = torch.zeros(
+                    aux_cls.shape[0], self.num_classes,
+                    dtype=aux_cls.dtype, device=aux_cls.device
+                )
+                target_onehot[matched_q, gt_labels[matched_g]] = 1.0
+                aux_cls_loss = sigmoid_focal_loss(
+                    aux_cls, target_onehot,
+                    num_boxes=max(len(matched_q), 1),
+                    alpha=self.focal_alpha, gamma=self.focal_gamma
+                )
+
+                # Box loss
+                aux_l1 = F.l1_loss(aux_coord[matched_q], gt_boxes[matched_g], reduction='mean')
+                if self.box_loss_type == 'nwd':
+                    aux_box = nwd_loss(aux_coord[matched_q], gt_boxes[matched_g], constant=self.nwd_constant)
+                else:
+                    aux_box = generalized_box_iou_loss(aux_coord[matched_q], gt_boxes[matched_g])
+
+                aux_loss = aux_loss + (
+                    self.cls_weight * aux_cls_loss +
+                    self.l1_weight * aux_l1 +
+                    self.giou_weight * aux_box
+                )
+                num_aux_layers += 1
+
+        if num_aux_layers > 0:
+            aux_loss = aux_loss / num_aux_layers
+            total_loss = total_loss + aux_loss
+
         return {
             'loss': total_loss,
             'loss_cls': loss_cls,
             'loss_l1': loss_l1,
             box_loss_key: loss_giou,
+            'loss_aux': aux_loss,
         }

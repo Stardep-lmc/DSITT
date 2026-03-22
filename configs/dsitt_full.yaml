@@ -16,7 +16,7 @@ model:
   dim_feedforward: 1024
   dropout: 0.1
   num_feature_levels: 4
-  num_queries: 300
+  num_queries: 100
   num_classes: 7
   modality_dropout: 0.1
   version: v2
@@ -31,7 +31,7 @@ tracking:
   p_insert: 0.1
 
 loss:
-  cls_weight: 2.0
+  cls_weight: 5.0
   box_l1_weight: 5.0
   box_loss_type: nwd
   giou_weight: 2.0

@@ -1,175 +1,237 @@
 # DSITT: Dual-Stream Infrared Tiny Target Tracker
 
-A query-centric multi-modal multi-object tracking framework for infrared tiny targets, built on Deformable DETR with modality-temporal unified queries.
+Query-level cross-modal fusion via Modality-Temporal Unified Queries for RGBT tiny object tracking.
 
-## 🏗️ Architecture Overview
+## 🚀 Quick Start: Environment Setup & Training
 
-```
-(img_rgb, img_ir) × T frames
-      ↓
-[DualStreamBackbone + ModalityDropout]        ← Stage 2
-  → (F_rgb, F_ir) × 4 scales
-      ↓
-[DualStreamEncoder] × 6 layers               ← Stage 0
-  → (memory_rgb, memory_ir)
-      ↓
-[MTUQManager.get_queries]                     ← Stage 2
-  → {q_rgb, q_ir, q_motion, q_fused} + pos
-      ↓
-[MotionViewUpdater(memory_bank)]              ← Stage 5
-  → q_motion enriched with trajectory history
-      ↓
-[ModalityAwareDecoder] × 6 layers            ← Stage 2/4
-  Step 1: Self-attention (q_fused)
-  Step 2: SAS Cross-attention (q_rgb↔F_rgb, q_ir↔F_ir)
-  Step 3: Cross-modal interaction (q_rgb↔q_ir)
-  Step 4: Adaptive 3-view fusion → q_fused
-      ↓
-[Prediction Heads]
-  → cls, box (from q_fused)
-  → box_rgb, box_ir (auxiliary, for CMC)      ← Stage 3
-      ↓
-[Loss]
-  = FocalLoss + L1 + NWD                      ← Stage 0+1
-  + CMC(consistency + contrastive)             ← Stage 3
-  + ScaleDiversityLoss                         ← Stage 4
-      ↓
-[MTUQManager.update + MemoryBank.push]        ← Stage 2+5
-  → track queries for next frame
+### 1. 系统要求
+
+- **GPU**: NVIDIA GPU with ≥24GB VRAM (tested on 32GB)
+- **OS**: Linux (tested on Ubuntu)
+- **Python**: 3.10+
+- **CUDA**: 11.8+ (with PyTorch 2.0+)
+
+### 2. 克隆仓库
+
+```bash
+git clone https://github.com/Stardep-lmc/DSITT.git
+cd DSITT
 ```
 
-**Parameters**: 81.8M | **Loss terms**: 6 | **Classes**: 7 (RGBT-Tiny)
+### 3. 安装依赖
 
-## 📂 Project Structure
+```bash
+# 创建 conda 环境 (推荐)
+conda create -n dsitt python=3.12 -y
+conda activate dsitt
+
+# 安装 PyTorch (根据你的 CUDA 版本选择)
+# CUDA 11.8:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# CUDA 12.1:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# 安装其他依赖
+pip install pyyaml tensorboard scipy pillow
+```
+
+### 4. 准备数据集
+
+RGBT-Tiny 数据集包含三个压缩包：
+- `images.zip` (2.3GB) — RGB+IR 图像
+- `annotations_coco.zip` (37MB) — COCO 格式标注 
+- `data_split.zip` (419KB) — 训练/测试划分
+
+```bash
+# 在项目根目录下创建数据目录
+mkdir -p data/rgbt_tiny
+
+# 将三个 zip 文件放入项目根目录, 然后解压:
+unzip -q data_split.zip -d data/rgbt_tiny/
+unzip -q images.zip -d data/rgbt_tiny/images/
+unzip -q annotations_coco.zip -d data/rgbt_tiny/annotations/
+```
+
+解压后的目录结构应该是:
+```
+data/rgbt_tiny/
+├── images/
+│   ├── DJI_0022_1/
+│   │   ├── 00/          ← RGB (640x512, 3通道)
+│   │   │   ├── 00000.jpg
+│   │   │   └── ...
+│   │   └── 01/          ← IR  (640x512, 1通道灰度)
+│   │       ├── 00000.jpg
+│   │       └── ...
+│   └── ... (共 115 个序列)
+├── annotations/
+│   ├── instances_00_train2017.json  (RGB train, COCO格式)
+│   ├── instances_00_test2017.json
+│   ├── instances_01_train2017.json  (IR train)
+│   └── instances_01_test2017.json
+├── 00_train.txt     (RGB 训练图像列表)
+├── 00_test.txt
+├── 01_train.txt     (IR 训练图像列表)
+├── 01_test.txt
+├── train.txt
+└── test.txt
+```
+
+**验证数据集:**
+```bash
+python -c "
+from datasets.rgbt_tiny import RGBTTinyDataset
+ds = RGBTTinyDataset('data/rgbt_tiny', split='train', modality='both')
+print(f'Sequences: {len(ds.sequences)}')  # 应该输出 85
+frames, targets = ds[0]
+print(f'Frame type: {type(frames[0])}, shape: {frames[0][0].shape}')  # (3, 512, 640)
+print(f'Targets: {targets[0][\"labels\"].shape[0]} objects')
+"
+```
+
+### 5. 验证模型构建
+
+```bash
+# Dummy 数据快速测试 (不需要真实数据集)
+python tools/train.py --dummy --epochs 2 --print_freq 1 --config configs/dsitt_full.yaml
+```
+
+应该看到:
+```
+Using DSITTv2 (MTUQ + MAD + SAS + Motion)
+Parameters: 81.5M (trainable: 81.4M)
+...
+Epoch [1] Complete. Avg Loss: X.XX
+```
+
+### 6. 开始训练
+
+```bash
+# 完整训练 (200 epochs, ~4小时 on 32GB GPU)
+python tools/train.py \
+    --config configs/dsitt_full.yaml \
+    --data_root data/rgbt_tiny \
+    --epochs 200 \
+    --print_freq 40 \
+    --save_freq 20 \
+    --output_dir outputs/train_200ep \
+    --num_workers 0
+
+# 使用 AMP 加速 (可选, 节省约 30% 显存)
+python tools/train.py \
+    --config configs/dsitt_full.yaml \
+    --data_root data/rgbt_tiny \
+    --epochs 200 \
+    --print_freq 40 \
+    --save_freq 20 \
+    --output_dir outputs/train_200ep \
+    --num_workers 0 \
+    --amp
+```
+
+**从 checkpoint 恢复训练:**
+```bash
+python tools/train.py \
+    --config configs/dsitt_full.yaml \
+    --data_root data/rgbt_tiny \
+    --epochs 200 \
+    --output_dir outputs/train_200ep \
+    --resume outputs/train_200ep/checkpoints/checkpoint_0100.pth
+```
+
+### 7. 评估
+
+```bash
+python tools/eval.py \
+    --config configs/dsitt_full.yaml \
+    --checkpoint outputs/train_200ep/checkpoints/checkpoint_0200.pth \
+    --data_root data/rgbt_tiny \
+    --score_threshold 0.3
+```
+
+---
+
+## 📂 项目结构
 
 ```
 DSITT/
 ├── models/
-│   ├── dsitt.py              # v1 baseline (single-stream)
-│   ├── dsitt_v2.py           # v2 full model (dual-stream + all innovations)
+│   ├── dsitt_v2.py               # 主模型 (双流+所有创新)
+│   ├── dsitt.py                  # v1 基线 (单流)
 │   ├── backbone/
-│   │   ├── resnet.py         # ResNet-50 backbone
-│   │   └── dual_stream.py    # Dual-stream backbone with modality dropout
+│   │   ├── resnet.py             # ResNet-50
+│   │   └── dual_stream.py        # 双流骨干 + 模态 Dropout
 │   ├── encoder/
-│   │   └── deformable_encoder.py  # Multi-scale deformable encoder
+│   │   └── deformable_encoder.py # 多尺度可变形编码器
 │   ├── decoder/
-│   │   ├── deformable_decoder.py      # v1 decoder
-│   │   ├── modality_aware_decoder.py  # MAD: 4-view query fusion
-│   │   └── scale_adaptive_attn.py     # SAS: learnable scale sampling
+│   │   ├── modality_aware_decoder.py  # MAD: 4步查询级融合 + 辅助解码损失
+│   │   └── scale_adaptive_attn.py     # SAS: 尺度自适应采样
 │   ├── tracking/
-│   │   ├── track_manager.py    # v1 track management
-│   │   ├── mtuq_manager.py     # MTUQ: unified query lifecycle
-│   │   └── motion_view.py      # Trajectory encoder + memory bank
+│   │   ├── mtuq_manager.py       # MTUQ: 四视图查询管理
+│   │   ├── track_manager.py      # TALA: 轨迹感知标签分配
+│   │   └── motion_view.py        # 运动视图编码器 + 记忆库
 │   ├── loss/
-│   │   ├── losses.py           # Main loss (Focal + L1 + NWD/GIoU)
-│   │   ├── nwd_loss.py         # Normalized Wasserstein Distance
-│   │   └── cmc_loss.py         # Cross-Modal Consistency loss
+│   │   ├── losses.py             # 主损失 (Focal + L1 + NWD + 辅助)
+│   │   ├── nwd_loss.py           # 归一化 Wasserstein 距离
+│   │   └── cmc_loss.py           # 跨模态一致性损失
 │   └── ops/
-│       └── ms_deform_attn.py   # Multi-scale deformable attention
+│       └── ms_deform_attn.py     # 多尺度可变形注意力
 ├── datasets/
-│   └── rgbt_tiny.py           # RGBT-Tiny dataset loader (single/dual modality)
+│   └── rgbt_tiny.py              # RGBT-Tiny 数据集 (COCO格式)
 ├── configs/
-│   ├── dsitt_base.yaml        # v1 baseline config
-│   ├── dsitt_nwd.yaml         # v1 + NWD config
-│   ├── dsitt_mtuq.yaml        # v2 MTUQ config
-│   └── dsitt_full.yaml        # v2 full config (all stages)
+│   ├── dsitt_full.yaml           # 完整 v2 配置
+│   ├── dsitt_base.yaml           # v1 基线配置
+│   ├── dsitt_nwd.yaml            # v1 + NWD
+│   └── dsitt_mtuq.yaml           # v2 MTUQ 配置
 ├── tools/
-│   ├── train.py               # Training script (v1/v2 auto-detect)
-│   └── test_model.py          # Model smoke test
-├── analysis/                  # Implementation notes per stage
-└── outputs/                   # Checkpoints & logs
+│   ├── train.py                  # 训练脚本 (支持 v1/v2, AMP, resume)
+│   └── eval.py                   # 评估脚本 (MOTA/IDF1/IDS)
+├── paper/
+│   ├── dsitt_paper.tex           # 论文 LaTeX
+│   └── references.bib            # BibTeX 参考文献
+└── analysis/                     # 各阶段实现笔记
 ```
 
-## 🚀 Quick Start
+## 🏗️ 架构
 
-### Requirements
-
-```bash
-pip install torch torchvision pyyaml tensorboard
+```
+(img_rgb, img_ir) × T frames
+      ↓
+[DualStreamBackbone + ModalityDropout]
+  → (F_rgb, F_ir) × 4 scales
+      ↓
+[DualStreamEncoder] × 6 layers
+  → (M_rgb, M_ir)
+      ↓
+[MTUQ: {q_rgb, q_ir, q_mot, q_fused}]
+      ↓
+[MotionViewUpdater(memory_bank)]
+      ↓
+[MAD Decoder] × 6 layers (each with auxiliary loss)
+  Step 1: Self-attention (q_fused)
+  Step 2: SAS Cross-attention (q_rgb↔M_rgb, q_ir↔M_ir)
+  Step 3: Cross-modal exchange (q_rgb↔q_ir)
+  Step 4: Gated 3-view fusion → q_fused
+      ↓
+[Prediction Heads] → cls, box
+[CMC Auxiliary Heads] → box_rgb, box_ir
+      ↓
+[Loss] = Focal + L1 + NWD + CMC + SAS_div + Aux(layers 1-5)
 ```
 
-### Development Test (no dataset needed)
+## ⚙️ 关键配置参数
 
-```bash
-# v2 full model (dual-stream, all innovations)
-python tools/train.py --config configs/dsitt_full.yaml --dummy --epochs 5 --print_freq 1
-
-# v1 baseline (single-stream)
-python tools/train.py --config configs/dsitt_base.yaml --dummy --epochs 5 --print_freq 1
-```
-
-### Training with RGBT-Tiny Dataset
-
-```bash
-# Download RGBT-Tiny dataset and place in data/rgbt_tiny/
-python tools/train.py --config configs/dsitt_full.yaml --data_root data/rgbt_tiny --epochs 200
-```
-
-### Resume Training
-
-```bash
-python tools/train.py --config configs/dsitt_full.yaml --resume outputs/checkpoints/checkpoint_0100.pth
-```
-
-## 🔬 Key Innovations
-
-### 1. Normalized Wasserstein Distance (NWD) Loss
-Replaces GIoU for tiny targets where bbox overlap is unreliable. Models boxes as 2D Gaussians and computes Wasserstein distance.
-
-### 2. Modality-Temporal Unified Queries (MTUQ)
-Four-view query system: `q_rgb`, `q_ir`, `q_motion`, `q_fused`. Queries carry modality-specific and temporal information across frames with adaptive gated fusion.
-
-### 3. Modality-Aware Decoder (MAD)
-6-layer decoder with per-view cross-attention and learnable 3-view fusion gates. Enables query-level (not feature-level) cross-modal fusion.
-
-### 4. Cross-Modal Consistency (CMC) Loss
-Auxiliary per-modality prediction heads with:
-- **Consistency loss**: L1 between RGB and IR box predictions
-- **Contrastive loss**: InfoNCE pulling matched query pairs closer
-
-### 5. Scale-Adaptive Sampling (SAS)
-Learnable per-query scale parameters replacing fixed multi-scale sampling points. Regularized by scale diversity loss to prevent collapse.
-
-### 6. Motion View Enhancement
-Trajectory memory bank storing last K frames of track queries. 2-layer Transformer encodes temporal patterns with box velocity features, injected via gating.
-
-## 📊 Implementation Stages
-
-| Stage | Component | Params | Status |
-|-------|-----------|--------|--------|
-| 0 | Baseline (Deformable DETR + tracking) | 40.1M | ✅ |
-| 1 | + NWD Loss | 40.1M | ✅ |
-| 2 | + MTUQ + MAD Decoder | 79.2M | ✅ |
-| 3 | + CMC Loss | 79.5M | ✅ |
-| 4 | + SAS Attention | 80.5M | ✅ |
-| 5 | + Motion View | 81.8M | ✅ |
-| 6 | System Integration | 81.8M | ✅ |
-
-## 📋 Training Configuration
-
-Key hyperparameters (see `configs/dsitt_full.yaml`):
-
-| Parameter | Value |
-|-----------|-------|
-| d_model | 256 |
-| Encoder/Decoder layers | 6/6 |
-| Feature levels | 4 |
-| Queries | 300 |
-| NWD constant | 0.1 |
-| CMC temperature | 0.07 |
-| Scale diversity weight | 0.1 |
-| Motion memory length | 5 |
-| Modality dropout | 0.1 |
-| Base LR | 2e-4 |
-
-### Progressive Clip Schedule
-| Epoch | Clip Length |
-|-------|------------|
-| 1 | 2 |
-| 50 | 3 |
-| 90 | 4 |
-| 150 | 5 |
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| d_model | 256 | 特征维度 |
+| num_queries | 100 | 检测查询数 |
+| num_encoder/decoder_layers | 6/6 | 编解码器层数 |
+| cls_weight | 5.0 | 分类损失权重 |
+| nwd_constant | 0.1 | NWD 归一化常数 |
+| modality_dropout | 0.1 | 模态随机丢弃率 |
+| base_lr | 2e-4 | 基础学习率 |
+| lr_drop_epoch | 100 | LR 下降 epoch |
 
 ## 📝 License
 
-This project is for research purposes.
+Research use only.
