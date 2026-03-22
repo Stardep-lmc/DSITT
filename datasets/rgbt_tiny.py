@@ -1,33 +1,35 @@
 """
 RGBT-Tiny Dataset Loader for DSITT.
 
-RGBT-Tiny dataset structure (expected):
-    rgbt_tiny/
-    ├── train/
-    │   ├── sequence_001/
-    │   │   ├── visible/          # RGB images
-    │   │   │   ├── 000001.jpg
-    │   │   │   ├── 000002.jpg
+RGBT-Tiny dataset structure:
+    data/rgbt_tiny/
+    ├── images/
+    │   ├── DJI_0022_1/
+    │   │   ├── 00/  (RGB, 640x512, 3ch)
+    │   │   │   ├── 00000.jpg
     │   │   │   └── ...
-    │   │   ├── infrared/         # IR images
-    │   │   │   ├── 000001.jpg
-    │   │   │   └── ...
-    │   │   └── annotations.json  # or annotations.txt
+    │   │   └── 01/  (IR, 640x512, 1ch grayscale)
+    │   │       ├── 00000.jpg
+    │   │       └── ...
     │   └── ...
-    └── test/
-        └── ...
+    ├── annotations/
+    │   ├── instances_00_train2017.json  (RGB train, COCO format)
+    │   ├── instances_00_test2017.json
+    │   ├── instances_01_train2017.json  (IR train, COCO format)
+    │   └── instances_01_test2017.json
+    ├── 00_train.txt / 00_test.txt  (RGB image lists)
+    ├── 01_train.txt / 01_test.txt  (IR image lists)
+    └── train.txt / test.txt         (combined)
 
-This module supports:
-- Single modality (IR only or RGB only)
-- Dual modality (RGB + IR paired)
-- Video clip sampling for training
+Modalities: 00 = RGB (3ch), 01 = IR (1ch grayscale)
+Categories: 0=ship, 1=car, 2=cyclist, 3=pedestrian, 4=bus, 5=drone, 6=plane
+Annotations: COCO format with tracking_id for MOT
 """
 
 import os
 import json
-import glob
 import random
-import numpy as np
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -40,325 +42,237 @@ class RGBTTinyDataset(Dataset):
     """
     RGBT-Tiny dataset for multi-object tracking.
 
-    Loads video clips (consecutive frames) with annotations including
-    bounding boxes, class labels, and track IDs.
-
-    When modality='both', each frame is returned as a (rgb_tensor, ir_tensor) tuple.
-    When modality='ir' or 'rgb', each frame is a single tensor.
+    Supports single modality (ir/rgb) or dual modality (both).
+    Uses split files and COCO annotations.
     """
 
-    # Category mapping for RGBT-Tiny (7 classes)
     CLASSES = ['ship', 'car', 'cyclist', 'pedestrian', 'bus', 'drone', 'plane']
-    CLASS_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
+    NUM_CLASSES = 7
 
     def __init__(
         self,
         data_root: str,
         split: str = 'train',
-        modality: str = 'ir',         # 'ir', 'rgb', or 'both'
+        modality: str = 'both',       # 'ir', 'rgb', or 'both'
         clip_length: int = 2,
-        img_size_min: int = 800,
-        img_size_max: int = 1536,
-        dummy_img_size: int = 320,     # smaller image size for dummy mode
-        transforms: Optional[object] = None,
-        sample_interval: int = 1,      # frame sampling interval
-        max_sample_interval: int = 5,  # max random interval
+        dummy_img_size: int = 320,
     ):
         super().__init__()
         self.data_root = data_root
         self.split = split
         self.modality = modality
         self.clip_length = clip_length
-        self.img_size_min = img_size_min
-        self.img_size_max = img_size_max
         self.dummy_img_size = dummy_img_size
-        self.transforms = transforms
-        self.sample_interval = sample_interval
-        self.max_sample_interval = max_sample_interval
+        self.img_dir = os.path.join(data_root, 'images')
 
-        # Load sequence information
-        self.sequences = self._load_sequences()
-        self.is_dummy = (len(self.sequences) > 0 and
-                         self.sequences[0].get('is_dummy', False))
-        print(f"[RGBTTinyDataset] Loaded {len(self.sequences)} sequences "
-              f"from {split} split, modality={modality}, clip_length={clip_length}"
+        # Try loading real data
+        self.is_dummy = False
+        self.sequences = []
+        self.seq_annotations = {}  # seq_name -> {frame_idx -> [annotations]}
+
+        split_file = os.path.join(data_root, f'00_{split}.txt')
+        if os.path.exists(split_file) and os.path.isdir(self.img_dir):
+            self._load_real_data(split)
+        else:
+            print(f"[WARNING] Dataset not found at {data_root}, using dummy data")
+            self.is_dummy = True
+            self.sequences = self._create_dummy_sequences()
+
+        print(f"[RGBTTinyDataset] {len(self.sequences)} sequences, "
+              f"split={split}, modality={modality}, clip_length={clip_length}"
               f"{' (DUMMY)' if self.is_dummy else ''}")
 
-    def _load_sequences(self) -> List[Dict]:
-        """Scan dataset directory and load sequence metadata."""
-        split_dir = os.path.join(self.data_root, self.split)
-        sequences = []
+    def _load_real_data(self, split: str):
+        """Load real dataset from split files and annotations."""
+        # 1. Parse split file to get sequence -> frame list mapping
+        split_file = os.path.join(self.data_root, f'00_{split}.txt')
+        seq_frames = defaultdict(list)  # seq_name -> [frame_idx, ...]
 
-        if not os.path.exists(split_dir):
-            print(f"[WARNING] Dataset directory not found: {split_dir}")
-            print(f"[WARNING] Using dummy sequences for development.")
-            return self._create_dummy_sequences()
+        with open(split_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                # Format: DJI_0022_1/00/00000
+                parts = line.split('/')
+                seq_name = parts[0]
+                frame_name = parts[2]  # e.g., '00000'
+                frame_idx = int(frame_name)
+                seq_frames[seq_name].append(frame_idx)
 
-        # Scan for sequence directories
-        seq_dirs = sorted(glob.glob(os.path.join(split_dir, '*')))
-        for seq_dir in seq_dirs:
-            if not os.path.isdir(seq_dir):
+        # Sort frames within each sequence
+        for seq_name in seq_frames:
+            seq_frames[seq_name] = sorted(set(seq_frames[seq_name]))
+
+        # 2. Load COCO annotations (streaming - only keep what we need)
+        ann_file = os.path.join(
+            self.data_root, 'annotations',
+            f'instances_00_{split}2017.json'
+        )
+        print(f"[RGBTTinyDataset] Loading annotations from {ann_file}...")
+        self._load_coco_annotations(ann_file, seq_frames)
+
+        # 3. Build sequence list
+        for seq_name, frames in sorted(seq_frames.items()):
+            if len(frames) < self.clip_length:
                 continue
-
-            seq_name = os.path.basename(seq_dir)
-
-            # Find image directories
-            ir_dir = self._find_image_dir(seq_dir, ['infrared', 'ir', 'thermal'])
-            rgb_dir = self._find_image_dir(seq_dir, ['visible', 'rgb', 'vis'])
-
-            if ir_dir is None and rgb_dir is None:
-                continue
-
-            # Find annotation file
-            ann_file = self._find_annotation_file(seq_dir)
-
-            # Count frames
-            img_dir = ir_dir if ir_dir else rgb_dir
-            frame_files = sorted(glob.glob(os.path.join(img_dir, '*.jpg')) +
-                                 glob.glob(os.path.join(img_dir, '*.png')))
-            num_frames = len(frame_files)
-
-            if num_frames < self.clip_length:
-                continue
-
-            # Load annotations
-            annotations = self._load_annotations(ann_file, num_frames) if ann_file else {}
-
-            sequences.append({
+            self.sequences.append({
                 'name': seq_name,
-                'ir_dir': ir_dir,
-                'rgb_dir': rgb_dir,
-                'num_frames': num_frames,
-                'frame_files': frame_files,
-                'annotations': annotations,
+                'frames': frames,
+                'num_frames': len(frames),
                 'is_dummy': False,
             })
 
-        if len(sequences) == 0:
-            print(f"[WARNING] No valid sequences found. Using dummy sequences.")
-            return self._create_dummy_sequences()
+    def _load_coco_annotations(self, ann_file: str, seq_frames: dict):
+        """Load COCO annotations and organize by sequence/frame."""
+        if not os.path.exists(ann_file):
+            print(f"[WARNING] Annotation file not found: {ann_file}")
+            return
 
-        return sequences
+        with open(ann_file, 'r') as f:
+            data = json.load(f)
 
-    def _find_image_dir(self, seq_dir: str, candidates: List[str]) -> Optional[str]:
-        """Find image directory from candidate names."""
-        for name in candidates:
-            path = os.path.join(seq_dir, name)
-            if os.path.isdir(path):
-                return path
-        return None
+        # Build image_id -> (seq_name, frame_idx) mapping
+        img_id_to_info = {}
+        for img in data['images']:
+            file_name = img['file_name']  # e.g., "DJI_0022_1/00/00000.jpg"
+            parts = file_name.replace('.jpg', '').split('/')
+            seq_name = parts[0]
+            frame_idx = int(parts[2])
+            img_id_to_info[img['id']] = (seq_name, frame_idx)
 
-    def _find_annotation_file(self, seq_dir: str) -> Optional[str]:
-        """Find annotation file in sequence directory."""
-        for name in ['annotations.json', 'annotations.txt', 'gt.txt',
-                      'groundtruth.txt', 'labels.json']:
-            path = os.path.join(seq_dir, name)
-            if os.path.exists(path):
-                return path
-        return None
+        # Organize annotations by sequence and frame
+        for ann in data['annotations']:
+            img_id = ann['image_id']
+            if img_id not in img_id_to_info:
+                continue
+            seq_name, frame_idx = img_id_to_info[img_id]
 
-    def _load_annotations(self, ann_file: str, num_frames: int) -> Dict:
-        """
-        Load annotations from file.
-        Returns: {frame_idx: [{'bbox': [x,y,w,h], 'label': int, 'track_id': int}, ...]}
-        """
-        annotations = {}
+            if seq_name not in self.seq_annotations:
+                self.seq_annotations[seq_name] = {}
+            if frame_idx not in self.seq_annotations[seq_name]:
+                self.seq_annotations[seq_name][frame_idx] = []
 
-        if ann_file.endswith('.json'):
-            with open(ann_file, 'r') as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                for item in data:
-                    frame_idx = item.get('frame_id', item.get('frame', 0))
-                    if frame_idx not in annotations:
-                        annotations[frame_idx] = []
-                    annotations[frame_idx].append({
-                        'bbox': item.get('bbox', [0, 0, 10, 10]),
-                        'label': item.get('category_id', item.get('label', 0)),
-                        'track_id': item.get('track_id', item.get('id', 0)),
-                    })
-        elif ann_file.endswith('.txt'):
-            # MOT format: frame_id, track_id, x, y, w, h, conf, class, ...
-            with open(ann_file, 'r') as f:
-                for line in f:
-                    parts = line.strip().split(',')
-                    if len(parts) < 6:
-                        continue
-                    frame_idx = int(parts[0]) - 1  # 0-indexed
-                    track_id = int(parts[1])
-                    x, y, w, h = float(parts[2]), float(parts[3]), \
-                                 float(parts[4]), float(parts[5])
-                    label = int(parts[7]) if len(parts) > 7 else 0
+            self.seq_annotations[seq_name][frame_idx].append({
+                'bbox': ann['bbox'],  # [x, y, w, h] in pixels
+                'category_id': ann['category_id'],
+                'tracking_id': int(ann.get('tracking_id', 0)),
+                'area': ann.get('area', 0),
+            })
 
-                    if frame_idx not in annotations:
-                        annotations[frame_idx] = []
-                    annotations[frame_idx].append({
-                        'bbox': [x, y, w, h],
-                        'label': label,
-                        'track_id': track_id,
-                    })
-
-        return annotations
+        print(f"[RGBTTinyDataset] Loaded {len(data['annotations'])} annotations "
+              f"for {len(data['images'])} images")
+        del data  # Free memory
 
     def _create_dummy_sequences(self) -> List[Dict]:
-        """Create dummy sequences for development/testing without real data."""
+        """Create dummy sequences for development/testing."""
         sequences = []
         for i in range(10):
             num_frames = random.randint(30, 100)
-            annotations = {}
-            num_targets = random.randint(3, 8)
-            for f in range(num_frames):
-                annotations[f] = []
-                for t in range(num_targets):
-                    cx = 0.3 + 0.4 * (t / num_targets) + 0.001 * f
-                    cy = 0.3 + 0.4 * ((t + 1) / num_targets) + 0.001 * f
-                    w = random.uniform(0.01, 0.05)
-                    h = random.uniform(0.01, 0.05)
-                    annotations[f].append({
-                        'bbox': [cx - w/2, cy - h/2, w, h],
-                        'label': random.randint(0, 6),
-                        'track_id': t,
-                    })
-
             sequences.append({
                 'name': f'dummy_seq_{i:03d}',
-                'ir_dir': None,
-                'rgb_dir': None,
+                'frames': list(range(num_frames)),
                 'num_frames': num_frames,
-                'frame_files': [],
-                'annotations': annotations,
                 'is_dummy': True,
             })
+            # Create dummy annotations
+            num_targets = random.randint(3, 8)
+            self.seq_annotations[f'dummy_seq_{i:03d}'] = {}
+            for f in range(num_frames):
+                anns = []
+                for t in range(num_targets):
+                    cx = 200 + 40 * t + 0.5 * f
+                    cy = 150 + 40 * t + 0.3 * f
+                    w = random.uniform(5, 30)
+                    h = random.uniform(5, 20)
+                    anns.append({
+                        'bbox': [cx - w/2, cy - h/2, w, h],
+                        'category_id': random.randint(0, 6),
+                        'tracking_id': t,
+                        'area': w * h,
+                    })
+                self.seq_annotations[f'dummy_seq_{i:03d}'][f] = anns
         return sequences
 
     def __len__(self) -> int:
         return len(self.sequences)
 
     def set_clip_length(self, clip_length: int):
-        """Update clip length (for progressive training schedule)."""
         self.clip_length = clip_length
 
     def __getitem__(self, idx: int) -> Tuple[List, List[Dict]]:
-        """
-        Sample a video clip from a sequence.
-
-        Returns:
-            frames: list of tensors or (rgb_tensor, ir_tensor) tuples
-            targets: list of target dicts per frame
-        """
         seq = self.sequences[idx % len(self.sequences)]
 
-        # Sample start frame and interval
-        interval = random.randint(1, min(self.max_sample_interval, self.sample_interval))
-        max_start = seq['num_frames'] - self.clip_length * interval
-        start_frame = random.randint(0, max(0, max_start))
+        # Sample consecutive frames
+        max_start = seq['num_frames'] - self.clip_length
+        start = random.randint(0, max(0, max_start))
+        frame_indices = seq['frames'][start:start + self.clip_length]
 
-        frame_indices = [
-            min(start_frame + t * interval, seq['num_frames'] - 1)
-            for t in range(self.clip_length)
-        ]
+        # Pad if not enough frames
+        while len(frame_indices) < self.clip_length:
+            frame_indices.append(frame_indices[-1])
 
         frames = []
         targets = []
+        W, H = 640, 512  # RGBT-Tiny image size
 
         for frame_idx in frame_indices:
             # Load image(s)
             img = self._load_image(seq, frame_idx)
-
-            # Determine image size for target normalization
-            if self.modality == 'both':
-                if isinstance(img, (tuple, list)):
-                    img_h, img_w = img[0].shape[-2:]
-                else:
-                    img_h, img_w = img.shape[-2:]
-            else:
-                img_h, img_w = img.shape[-2:]
-
-            # Get annotations for this frame
-            target = self._get_frame_target(seq, frame_idx, (img_h, img_w))
-
+            # Get annotations
+            target = self._get_target(seq['name'], frame_idx, W, H)
             frames.append(img)
             targets.append(target)
 
         return frames, targets
 
-    def _load_image(self, seq: Dict, frame_idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Load image for given sequence and frame index.
-
-        Returns:
-            modality='ir' or 'rgb': single [3, H, W] tensor
-            modality='both': (rgb_tensor, ir_tensor) tuple of [3, H, W] tensors
-        """
-        is_dummy = seq.get('is_dummy', False)
-
-        if is_dummy:
-            # Dummy mode: generate random images at smaller resolution
-            size = self.dummy_img_size
-            if self.modality == 'both':
-                return (torch.randn(3, size, size), torch.randn(3, size, size))
-            else:
-                return torch.randn(3, size, size)
-
-        # Real data loading
-        if self.modality == 'both':
-            # Load both modalities
-            rgb_img = self._load_single_image(seq['rgb_dir'], seq, frame_idx)
-            ir_img = self._load_single_image(seq['ir_dir'], seq, frame_idx)
-            return (rgb_img, ir_img)
-        elif self.modality == 'rgb' and seq['rgb_dir']:
-            return self._load_single_image(seq['rgb_dir'], seq, frame_idx)
-        elif self.modality == 'ir' and seq['ir_dir']:
-            return self._load_single_image(seq['ir_dir'], seq, frame_idx)
-        elif seq['ir_dir']:
-            return self._load_single_image(seq['ir_dir'], seq, frame_idx)
-        elif seq['rgb_dir']:
-            return self._load_single_image(seq['rgb_dir'], seq, frame_idx)
-        else:
-            # Should not happen with real data
+    def _load_image(self, seq: Dict, frame_idx: int):
+        """Load image(s) for a frame."""
+        if seq.get('is_dummy', False):
             size = self.dummy_img_size
             if self.modality == 'both':
                 return (torch.randn(3, size, size), torch.randn(3, size, size))
             return torch.randn(3, size, size)
 
-    def _load_single_image(self, img_dir: Optional[str], seq: Dict,
-                           frame_idx: int) -> torch.Tensor:
-        """Load a single image from a directory."""
-        if img_dir is None:
+        seq_name = seq['name']
+        fname = f'{frame_idx:05d}.jpg'
+
+        if self.modality == 'both':
+            rgb_path = os.path.join(self.img_dir, seq_name, '00', fname)
+            ir_path = os.path.join(self.img_dir, seq_name, '01', fname)
+            rgb_img = self._read_image(rgb_path, is_rgb=True)
+            ir_img = self._read_image(ir_path, is_rgb=False)
+            return (rgb_img, ir_img)
+        elif self.modality == 'rgb':
+            path = os.path.join(self.img_dir, seq_name, '00', fname)
+            return self._read_image(path, is_rgb=True)
+        else:  # ir
+            path = os.path.join(self.img_dir, seq_name, '01', fname)
+            return self._read_image(path, is_rgb=False)
+
+    def _read_image(self, path: str, is_rgb: bool = True) -> torch.Tensor:
+        """Read and preprocess a single image."""
+        if not os.path.exists(path):
             return torch.randn(3, self.dummy_img_size, self.dummy_img_size)
 
-        # Try frame_files list first
-        if frame_idx < len(seq['frame_files']):
-            img_path = seq['frame_files'][frame_idx]
-            # Adjust path for the correct modality directory
-            base_name = os.path.basename(img_path)
-            img_path = os.path.join(img_dir, base_name)
+        img = Image.open(path)
+        if is_rgb:
+            img = img.convert('RGB')
         else:
-            img_path = None
+            # IR is grayscale, convert to 3-channel for backbone compatibility
+            img = img.convert('L')
+            img = Image.merge('RGB', [img, img, img])
 
-        # Try to construct path if needed
-        if img_path is None or not os.path.exists(img_path):
-            for ext in ['.jpg', '.png']:
-                candidate = os.path.join(img_dir, f'{frame_idx + 1:06d}{ext}')
-                if os.path.exists(candidate):
-                    img_path = candidate
-                    break
+        img = TF.to_tensor(img)  # [3, H, W]
+        img = TF.normalize(img,
+                           mean=[0.485, 0.456, 0.406],
+                           std=[0.229, 0.224, 0.225])
+        return img
 
-        if img_path and os.path.exists(img_path):
-            img = Image.open(img_path).convert('RGB')
-            img = TF.to_tensor(img)
-            img = TF.normalize(img,
-                               mean=[0.485, 0.456, 0.406],
-                               std=[0.229, 0.224, 0.225])
-            return img
-        else:
-            return torch.randn(3, self.dummy_img_size, self.dummy_img_size)
-
-    def _get_frame_target(self, seq: Dict, frame_idx: int,
-                          img_size: Tuple[int, int]) -> Dict:
-        """Get target annotations for a specific frame."""
-        H, W = img_size
-        anns = seq['annotations'].get(frame_idx, [])
+    def _get_target(self, seq_name: str, frame_idx: int,
+                    W: int, H: int) -> Dict:
+        """Get normalized target annotations for a frame."""
+        anns = self.seq_annotations.get(seq_name, {}).get(frame_idx, [])
 
         if len(anns) == 0:
             return {
@@ -374,23 +288,21 @@ class RGBTTinyDataset(Dataset):
         for ann in anns:
             x, y, w, h = ann['bbox']
 
-            # Normalize to [0, 1] if not already
-            if x > 1 or y > 1 or w > 1 or h > 1:
-                x, y, w, h = x / W, y / W, w / W, h / H
+            # Convert pixel coords to normalized [0,1] (cx, cy, w, h)
+            cx = (x + w / 2) / W
+            cy = (y + h / 2) / H
+            nw = w / W
+            nh = h / H
 
-            # Convert from (x, y, w, h) to (cx, cy, w, h)
-            cx = x + w / 2
-            cy = y + h / 2
-
-            # Clamp to valid range
+            # Clamp
             cx = max(0.0, min(1.0, cx))
             cy = max(0.0, min(1.0, cy))
-            w = max(0.001, min(1.0, w))
-            h = max(0.001, min(1.0, h))
+            nw = max(0.001, min(1.0, nw))
+            nh = max(0.001, min(1.0, nh))
 
-            boxes.append([cx, cy, w, h])
-            labels.append(ann['label'])
-            track_ids.append(ann['track_id'])
+            boxes.append([cx, cy, nw, nh])
+            labels.append(ann['category_id'])
+            track_ids.append(ann['tracking_id'])
 
         return {
             'labels': torch.tensor(labels, dtype=torch.long),
@@ -400,28 +312,19 @@ class RGBTTinyDataset(Dataset):
 
 
 def collate_fn(batch):
-    """
-    Custom collate function for video clips.
-
-    Handles both single modality (tensor) and dual modality (tuple of tensors).
-    Since we use batch_size=1 for video tracking, this is straightforward.
-    """
+    """Custom collate for video clips with single/dual modality."""
     frames_list, targets_list = zip(*batch)
 
     if len(frames_list) == 1:
-        # batch_size=1: add batch dimension
         raw_frames = frames_list[0]
         if isinstance(raw_frames[0], (tuple, list)):
-            # Dual modality: each frame is (rgb, ir)
             frames = [(rgb.unsqueeze(0), ir.unsqueeze(0))
                       for rgb, ir in raw_frames]
         else:
-            # Single modality: each frame is a tensor
             frames = [f.unsqueeze(0) for f in raw_frames]
         targets = targets_list[0]
         return frames, targets
 
-    # Batch size > 1
     clip_length = len(frames_list[0])
     is_dual = isinstance(frames_list[0][0], (tuple, list))
 
@@ -445,14 +348,13 @@ def collate_fn(batch):
 def build_rgbt_tiny_dataset(
     data_root: str = 'data/rgbt_tiny',
     split: str = 'train',
-    modality: str = 'ir',
+    modality: str = 'both',
     clip_length: int = 2,
     batch_size: int = 1,
     num_workers: int = 4,
     dummy_img_size: int = 320,
 ) -> Tuple[Dataset, DataLoader]:
     """Build RGBT-Tiny dataset and dataloader."""
-
     dataset = RGBTTinyDataset(
         data_root=data_root,
         split=split,
