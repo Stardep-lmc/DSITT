@@ -56,9 +56,11 @@ class RGBTTinyDataset(Dataset):
         modality: str = 'both',       # 'ir', 'rgb', or 'both'
         clip_length: int = 2,
         dummy_img_size: int = 320,
+        samples_per_epoch: int = 2000,  # clips per epoch (controls training speed)
     ):
         super().__init__()
         self.data_root = data_root
+        self.samples_per_epoch = samples_per_epoch
         self.split = split
         self.modality = modality
         self.clip_length = clip_length
@@ -78,7 +80,11 @@ class RGBTTinyDataset(Dataset):
             self.is_dummy = True
             self.sequences = self._create_dummy_sequences()
 
+        # Build clip index for efficient iteration
+        self._build_clip_index()
+
         print(f"[RGBTTinyDataset] {len(self.sequences)} sequences, "
+              f"{len(self)} clips, "
               f"split={split}, modality={modality}, clip_length={clip_length}"
               f"{' (DUMMY)' if self.is_dummy else ''}")
 
@@ -195,17 +201,40 @@ class RGBTTinyDataset(Dataset):
         return sequences
 
     def __len__(self) -> int:
-        return len(self.sequences)
+        # Return number of clips per epoch
+        # For training: use samples_per_epoch to control epoch size
+        # (full dataset has ~34K clips, but 1 epoch with all of them would be too slow)
+        if hasattr(self, '_clip_map') and self._clip_map:
+            return min(len(self._clip_map), self.samples_per_epoch)
+        if not self.sequences:
+            return 0
+        total = 0
+        for seq in self.sequences:
+            total += max(1, seq['num_frames'] - self.clip_length + 1)
+        return min(total, self.samples_per_epoch)
 
     def set_clip_length(self, clip_length: int):
         self.clip_length = clip_length
+        # Rebuild clip index mapping
+        self._build_clip_index()
+
+    def _build_clip_index(self):
+        """Build mapping from flat index to (seq_idx, start_frame)."""
+        self._clip_map = []
+        for seq_idx, seq in enumerate(self.sequences):
+            n_clips = max(1, seq['num_frames'] - self.clip_length + 1)
+            for start in range(n_clips):
+                self._clip_map.append((seq_idx, start))
 
     def __getitem__(self, idx: int) -> Tuple[List, List[Dict]]:
-        seq = self.sequences[idx % len(self.sequences)]
-
-        # Sample consecutive frames
-        max_start = seq['num_frames'] - self.clip_length
-        start = random.randint(0, max(0, max_start))
+        # Use clip map if available, otherwise fall back to random
+        if hasattr(self, '_clip_map') and self._clip_map:
+            seq_idx, start = self._clip_map[idx % len(self._clip_map)]
+            seq = self.sequences[seq_idx]
+        else:
+            seq = self.sequences[idx % len(self.sequences)]
+            max_start = seq['num_frames'] - self.clip_length
+            start = random.randint(0, max(0, max_start))
         frame_indices = seq['frames'][start:start + self.clip_length]
 
         # Pad if not enough frames

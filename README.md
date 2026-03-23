@@ -107,47 +107,53 @@ Epoch [1] Complete. Avg Loss: X.XX
 ### 6. 开始训练
 
 ```bash
-# 完整训练 (200 epochs, ~4小时 on 32GB GPU)
+# v4 训练 (推荐: 50 epochs × 2000 clips/epoch, ~28小时 on 32GB GPU)
+# 每 epoch 从 34K 可用 clip 中随机采样 2000 个, 比旧版 (85 clips/epoch) 多 24 倍数据
 python tools/train.py \
     --config configs/dsitt_full.yaml \
     --data_root data/rgbt_tiny \
-    --epochs 200 \
-    --print_freq 40 \
-    --save_freq 20 \
-    --output_dir outputs/train_200ep \
+    --epochs 50 \
+    --print_freq 200 \
+    --save_freq 10 \
+    --output_dir outputs/train_v4 \
     --num_workers 0
-
-# 使用 AMP 加速 (可选, 节省约 30% 显存)
-python tools/train.py \
-    --config configs/dsitt_full.yaml \
-    --data_root data/rgbt_tiny \
-    --epochs 200 \
-    --print_freq 40 \
-    --save_freq 20 \
-    --output_dir outputs/train_200ep \
-    --num_workers 0 \
-    --amp
 ```
+
+**训练时间估算:**
+| 配置 | Clips/Epoch | Epochs | 总步数 | 预计时间 |
+|------|------------|--------|--------|---------|
+| v4 (推荐) | 2000 | 50 | 100K | ~28h |
+| v3 (旧) | 85 | 200 | 17K | ~4h |
 
 **从 checkpoint 恢复训练:**
 ```bash
 python tools/train.py \
     --config configs/dsitt_full.yaml \
     --data_root data/rgbt_tiny \
-    --epochs 200 \
-    --output_dir outputs/train_200ep \
-    --resume outputs/train_200ep/checkpoints/checkpoint_0100.pth
+    --epochs 50 \
+    --output_dir outputs/train_v4 \
+    --resume outputs/train_v4/checkpoints/checkpoint_0010.pth
 ```
 
 ### 7. 评估
 
 ```bash
+# 使用最新的 v4 checkpoint
 python tools/eval.py \
     --config configs/dsitt_full.yaml \
-    --checkpoint outputs/train_200ep/checkpoints/checkpoint_0200.pth \
+    --checkpoint outputs/train_v4/checkpoints/checkpoint_0050.pth \
     --data_root data/rgbt_tiny \
-    --score_threshold 0.3
+    --score_threshold 0.1
+
+# 如果用旧的 v3 checkpoint (200ep, 85 clips/epoch)
+python tools/eval.py \
+    --config configs/dsitt_full.yaml \
+    --checkpoint outputs/train_v3/checkpoints/checkpoint_0200.pth \
+    --data_root data/rgbt_tiny \
+    --score_threshold 0.1
 ```
+
+> **注意:** score_threshold 建议用 0.1 而不是 0.3, 因为微小目标的分类分数通常较低。
 
 ---
 
