@@ -36,7 +36,7 @@ loss:
   box_loss_type: nwd
   giou_weight: 2.0
   nwd_constant: 0.1
-  focal_alpha: 0.25
+  focal_alpha: 0.5
   focal_gamma: 2.0
   # CMC weights
   cmc_consistency_weight: 1.0

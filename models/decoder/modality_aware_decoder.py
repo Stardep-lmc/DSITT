@@ -19,6 +19,7 @@ because the fusion happens inside the tracking query, tightly coupling
 multi-modal reasoning with object-level tracking.
 """
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -260,6 +261,12 @@ class ModalityAwareDecoder(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 xavier_uniform_(p)
+        # Critical: initialize class head bias with prior probability
+        # This ensures initial predictions are low (~0.01), matching focal loss expectations
+        # Without this, focal loss pushes all scores to zero during early training
+        prior_prob = 0.01
+        bias_value = -math.log((1 - prior_prob) / prior_prob)
+        constant_(self.class_head.bias, bias_value)
 
     def forward(self, queries, query_pos,
                 memory_rgb, spatial_shapes_rgb, level_start_rgb,

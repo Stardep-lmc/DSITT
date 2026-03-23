@@ -52,6 +52,8 @@ class DSITTv2(nn.Module):
         box_loss_type: str = 'nwd',
         nwd_constant: float = 0.1,
         modality_dropout: float = 0.1,
+        cls_weight: float = 5.0,
+        focal_alpha: float = 0.5,
     ):
         super().__init__()
 
@@ -95,6 +97,8 @@ class DSITTv2(nn.Module):
         # Loss (reuse from v1, compatible)
         self.criterion = DSITTLoss(
             num_classes=num_classes,
+            cls_weight=cls_weight,
+            focal_alpha=focal_alpha,
             box_loss_type=box_loss_type,
             nwd_constant=nwd_constant,
         )
@@ -311,4 +315,6 @@ def build_dsitt_v2(config: Optional[Dict] = None) -> DSITTv2:
         box_loss_type=loss_cfg.get('box_loss_type', 'nwd'),
         nwd_constant=loss_cfg.get('nwd_constant', 0.1),
         modality_dropout=model_cfg.get('modality_dropout', 0.1),
+        cls_weight=loss_cfg.get('cls_weight', 5.0),
+        focal_alpha=loss_cfg.get('focal_alpha', 0.5),
     )
