@@ -39,8 +39,12 @@
 
 \begin{document}
 
-\title{DSITT: Query-Level Cross-Modal Fusion via\\Modality-Temporal Unified Queries for RGBT Tiny Object Tracking}
-\author{Anonymous Authors}
+\title{QFTrack: Query-Level Cross-Modal Fusion\\for End-to-End RGBT Tiny Object Tracking}
+\author{Mingchen Liu\textsuperscript{1} \quad Xinyu Zhou\textsuperscript{1,*}\\[0.3em]
+\textsuperscript{1}Institute of Intelligent Computing, University of Electronic Science and Technology of China, Chengdu 611731, China\\[0.2em]
+{\tt\small 2023090906007@std.uestc.edu.cn, zhxy@uestc.edu.cn}\\[0.2em]
+{\small \textsuperscript{*}Corresponding author}
+}
 \maketitle
 
 %%=============================================================
@@ -49,11 +53,11 @@ Multi-object tracking (MOT) of tiny infrared targets faces two fundamental chall
 RGB-thermal (RGBT) fusion offers complementary cues, yet existing methods fuse at the \textit{feature level}, committing to a single representation before the decoder and losing modality-specific evidence.
 We argue that fusion should instead occur at the \textit{query level} inside the decoder, where each tracking query can independently reason about per-modality evidence.
 
-We propose \textbf{DSITT}, built on \textit{Modality-Temporal Unified Queries} (MTUQ)---a structured representation where each query maintains four views: $\mathbf{q}_\text{rgb}$, $\mathbf{q}_\text{ir}$, $\mathbf{q}_\text{mot}$, $\mathbf{q}_\text{fused}$.
+We propose \textbf{QFTrack}, built on \textit{Modality-Temporal Unified Queries} (MTUQ)---a structured representation where each query maintains four views: $\mathbf{q}_\text{rgb}$, $\mathbf{q}_\text{ir}$, $\mathbf{q}_\text{mot}$, $\mathbf{q}_\text{fused}$.
 A \textit{Modality-Aware Decoder} (MAD) processes these views through per-modality cross-attention, bidirectional cross-modal exchange, and adaptive gated fusion at every layer.
 A novel \textit{Cross-Modal Consistency} (CMC) loss enforces prediction agreement and feature alignment across modalities via contrastive learning, improving robustness under modality degradation.
 For tiny targets, we integrate Normalized Wasserstein Distance (NWD) into both the regression loss and Hungarian matching, and introduce Scale-Adaptive Sampling (SAS) for learnable per-query spatial focus.
-Experiments on RGBT-Tiny demonstrate that DSITT achieves state-of-the-art performance.
+Experiments on RGBT-Tiny demonstrate that QFTrack achieves state-of-the-art performance.
 \end{abstract}
 
 %%=============================================================
@@ -79,7 +83,7 @@ Cross-modal fusion should be deferred from the feature level to the \textit{quer
 Each query maintains independent modality views that interact \textit{bidirectionally} at every decoder layer, with adaptive per-query gating.
 This preserves modality-specific reasoning while enabling deep cross-modal exchange---a property unavailable to feature-level methods.
 
-To the best of our knowledge, \textbf{DSITT is the first end-to-end MOT framework that jointly addresses} (1) multi-modal RGBT fusion, (2) tiny target optimization, and (3) temporal tracking in a unified query-centric design.
+To the best of our knowledge, \textbf{QFTrack is the first end-to-end MOT framework that jointly addresses} (1) multi-modal RGBT fusion, (2) tiny target optimization, and (3) temporal tracking in a unified query-centric design.
 Existing RGBT works focus on single-object tracking (SOT)~\cite{vipt_zhu2023,tbsi_hui2023,bat_cao2024}, while existing end-to-end MOT works~\cite{motr,motrv2,memotr} are single-modality.
 
 \textbf{Contributions:}
@@ -100,7 +104,7 @@ MOTRv2~\cite{motrv2} bootstraps proposals from an off-the-shelf detector.
 MeMOTR~\cite{memotr} adds long-term memory.
 TrackFormer~\cite{trackformer} uses autoregressive track queries.
 All operate on single-modality input with unstructured (single-vector) queries.
-DSITT extends this paradigm with structured multi-view queries for RGBT fusion.
+QFTrack extends this paradigm with structured multi-view queries for RGBT fusion.
 
 \textbf{RGBT Fusion for Tracking.}
 Most RGBT work targets SOT.
@@ -110,11 +114,11 @@ BAT~\cite{bat_cao2024} uses bi-directional adapters.
 All fuse at the feature/encoder level before a standard head.
 Our work differs fundamentally: (i) we target MOT, not SOT; (ii) fusion occurs at the query level inside the decoder, preserving per-modality evidence per object.
 
-Table~\ref{tab:position} summarizes DSITT's unique positioning.
+Table~\ref{tab:position} summarizes QFTrack's unique positioning.
 
 \begin{table}[t]
 \centering
-\caption{Positioning of DSITT vs.\ related methods.}
+\caption{Positioning of QFTrack vs.\ related methods.}
 \label{tab:position}
 \resizebox{\columnwidth}{!}{%
 \begin{tabular}{l|ccccc}
@@ -128,7 +132,7 @@ ViPT~\cite{vipt_zhu2023}   & SOT & RGBT   & Feature & \xmark & \cmark \\
 TBSI~\cite{tbsi_hui2023}   & SOT & RGBT   & Feature & \xmark & \cmark \\
 BAT~\cite{bat_cao2024}     & SOT & RGBT   & Feature & \xmark & \cmark \\
 \midrule
-\textbf{DSITT (Ours)}      & \textbf{MOT} & \textbf{RGBT} & \textbf{Query} & \cmark & \cmark \\
+\textbf{QFTrack (Ours)}      & \textbf{MOT} & \textbf{RGBT} & \textbf{Query} & \cmark & \cmark \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -142,13 +146,13 @@ It was proposed for detection; we extend NWD to the full MOT pipeline (loss + ma
 \label{sec:method}
 
 \FIGNEEDED{%
-\textbf{Fig.~2.} Overall DSITT architecture. Dual-stream ResNet-50 backbones $\to$ independent deformable encoders $\to$ MTUQ query construction $\to$ MAD decoder (6 layers) $\to$ prediction from $\mathbf{q}_\text{fused}$. Show CMC auxiliary heads on $\mathbf{q}_\text{rgb}$/$\mathbf{q}_\text{ir}$, motion memory bank feeding $\mathbf{q}_\text{mot}$, and all four query views labeled.
+\textbf{Fig.~2.} Overall QFTrack architecture. Dual-stream ResNet-50 backbones $\to$ independent deformable encoders $\to$ MTUQ query construction $\to$ MAD decoder (6 layers) $\to$ prediction from $\mathbf{q}_\text{fused}$. Show CMC auxiliary heads on $\mathbf{q}_\text{rgb}$/$\mathbf{q}_\text{ir}$, motion memory bank feeding $\mathbf{q}_\text{mot}$, and all four query views labeled.
 }
 %% [需要手绘] 完整架构图
 
 \subsection{Architecture Overview}
 
-Given RGBT frame pairs $(\mathbf{I}_\text{rgb}^t, \mathbf{I}_\text{ir}^t)$ for $t=1,\ldots,T$, DSITT proceeds in five stages:
+Given RGBT frame pairs $(\mathbf{I}_\text{rgb}^t, \mathbf{I}_\text{ir}^t)$ for $t=1,\ldots,T$, QFTrack proceeds in five stages:
 
 \textbf{(1) Dual-stream backbone.}
 Two independent ResNet-50~\cite{resnet} backbones extract multi-scale features $\{\mathbf{F}_m^\ell\}_{\ell=1}^4$ for $m\!\in\!\{\text{rgb},\text{ir}\}$, projected to $d\!=\!256$ dimensions.
@@ -324,7 +328,7 @@ MOTR$^\dagger$~\cite{motr}           & IR & \TODO{} & \TODO{} & \TODO{} & \TODO{
 MOTR$^\ddagger$~\cite{motr}          & RGBT & \TODO{} & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
 ByteTrack$^\ddagger$~\cite{bytetrack}& RGBT & \TODO{} & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
 \midrule
-\textbf{DSITT (Ours)} & RGBT & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} \\
+\textbf{QFTrack (Ours)} & RGBT & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -384,8 +388,8 @@ Feature & Cross-attn       & \TODO{} & \TODO{} & \TODO{} \\
 Method & Normal & RGB $\sigma\!=\!50$ & RGB $\sigma\!=\!100$ & RGB off & IR $\sigma\!=\!50$ \\
 \midrule
 Feature fusion        & \TODO{} & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
-DSITT w/o CMC         & \TODO{} & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
-\textbf{DSITT (full)} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} \\
+QFTrack w/o CMC         & \TODO{} & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
+\textbf{QFTrack (full)} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} & \textbf{\TODO{}} \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -398,7 +402,7 @@ DSITT w/o CMC         & \TODO{} & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
 %% [需要手绘] 门控权重柱状图
 
 \FIGNEEDED{%
-\textbf{Fig.~5.} Qualitative tracking comparison. Top: MOTR baseline (single-modality) with ID switches. Bottom: DSITT with stable tracking on challenging sequences.
+\textbf{Fig.~5.} Qualitative tracking comparison. Top: MOTR baseline (single-modality) with ID switches. Bottom: QFTrack with stable tracking on challenging sequences.
 }
 %% [需要手绘] 跟踪轨迹对比可视化
 
@@ -420,7 +424,7 @@ Method & Params & GFLOPs & FPS & HOTA \\
 \midrule
 ByteTrack$^\dagger$ & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
 MOTR$^\dagger$ & ${\sim}$40M & \TODO{} & \TODO{} & \TODO{} \\
-\textbf{DSITT} & 81.8M & \TODO{} & \TODO{} & \TODO{} \\
+\textbf{QFTrack} & 81.8M & \TODO{} & \TODO{} & \TODO{} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -430,7 +434,7 @@ The dual-stream backbone doubles parameters from ${\sim}$40M to 81.8M. Most over
 %%=============================================================
 \section{Conclusion}
 
-We presented DSITT, the first end-to-end RGBT multi-object tracker for tiny targets. Our core contribution is \textit{query-level cross-modal fusion} via Modality-Temporal Unified Queries (MTUQ), which defers fusion from the feature level to inside the decoder. The Modality-Aware Decoder (MAD) enables iterative cross-modal reasoning per query, while the Cross-Modal Consistency (CMC) loss provides a novel self-supervision signal improving robustness under modality degradation. NWD-based optimization and Scale-Adaptive Sampling further address tiny-target challenges.
+We presented QFTrack, the first end-to-end RGBT multi-object tracker for tiny targets. Our core contribution is \textit{query-level cross-modal fusion} via Modality-Temporal Unified Queries (MTUQ), which defers fusion from the feature level to inside the decoder. The Modality-Aware Decoder (MAD) enables iterative cross-modal reasoning per query, while the Cross-Modal Consistency (CMC) loss provides a novel self-supervision signal improving robustness under modality degradation. NWD-based optimization and Scale-Adaptive Sampling further address tiny-target challenges.
 
 \textbf{Limitations and future work.}
 The dual-stream backbone increases parameters to 81.8M (vs.\ ${\sim}$40M single-stream) and roughly doubles backbone FLOPs, which may limit real-time deployment on edge devices such as UAVs.
@@ -438,7 +442,7 @@ Three directions could mitigate this:
 (i)~sharing the first two ResNet stages across modalities (reducing backbone overhead by ${\sim}$40\% with minimal accuracy loss, as early features are modality-agnostic);
 (ii)~replacing ResNet-50 with lightweight backbones (e.g., MobileNetV3, EfficientNet);
 (iii)~applying knowledge distillation from the dual-stream teacher to a single-stream student.
-Extending DSITT to other multi-modal settings (RGB-LiDAR, RGB-event) and larger-scale MOT benchmarks is a natural next step.
+Extending QFTrack to other multi-modal settings (RGB-LiDAR, RGB-event) and larger-scale MOT benchmarks is a natural next step.
 
 %%=============================================================
 {\small
