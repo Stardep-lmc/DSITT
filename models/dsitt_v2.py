@@ -52,8 +52,8 @@ class DSITTv2(nn.Module):
         box_loss_type: str = 'nwd',
         nwd_constant: float = 0.1,
         modality_dropout: float = 0.1,
-        cls_weight: float = 5.0,
-        focal_alpha: float = 0.5,
+        cls_weight: float = 2.0,
+        focal_alpha: float = 0.25,
     ):
         super().__init__()
 
@@ -154,7 +154,7 @@ class DSITTv2(nn.Module):
                 memory_ir, shapes_ir, starts_ir,
             )
 
-        return queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params, aux_cls, aux_coord
+        return queries, query_pos, outputs_class, outputs_coord, ref_points, gate_weights, scale_params, aux_cls, aux_coord
 
     def forward(
         self,
@@ -186,7 +186,7 @@ class DSITTv2(nn.Module):
             img_ir = frames_ir[t]
 
             # Forward single frame
-            queries, query_pos, outputs_class, outputs_coord, gate_weights, scale_params, aux_cls, aux_coord = \
+            queries, query_pos, outputs_class, outputs_coord, ref_points, gate_weights, scale_params, aux_cls, aux_coord = \
                 self.forward_single_frame(img_rgb, img_ir)
 
             # Motion view update from trajectory memory
@@ -204,12 +204,17 @@ class DSITTv2(nn.Module):
                         q_motion_updated,
                         queries['q_motion'][:, n_track:]
                     ], dim=1)
-                else:
-                    # Track count changed → reset memory
-                    self.memory_bank.reset()
+                # else: track count changed → skip motion update but keep memory
+                # Memory will be reset and re-pushed below if track count differs
 
             # Push track queries to memory (only if we have tracks)
             if n_track > 0:
+                # If track count changed, old per-track features don't correspond
+                # to new tracks → reset before pushing
+                if self.memory_bank.length > 0:
+                    hist_feats, _ = self.memory_bank.get_history()
+                    if hist_feats is not None and hist_feats.shape[2] != n_track:
+                        self.memory_bank.reset()
                 self.memory_bank.push(
                     queries['q_fused'][:, :n_track].detach(),
                     outputs_coord[:, :n_track].detach(),
@@ -221,6 +226,7 @@ class DSITTv2(nn.Module):
                 'pred_logits': outputs_class,
                 'pred_boxes': outputs_coord,
                 'queries': queries,
+                'reference_points': ref_points,
                 'gate_weights': gate_weights,
                 'scale_params': scale_params,
                 'aux_outputs_class': aux_cls,
@@ -315,6 +321,6 @@ def build_dsitt_v2(config: Optional[Dict] = None) -> DSITTv2:
         box_loss_type=loss_cfg.get('box_loss_type', 'nwd'),
         nwd_constant=loss_cfg.get('nwd_constant', 0.1),
         modality_dropout=model_cfg.get('modality_dropout', 0.1),
-        cls_weight=loss_cfg.get('cls_weight', 5.0),
-        focal_alpha=loss_cfg.get('focal_alpha', 0.5),
+        cls_weight=loss_cfg.get('cls_weight', 2.0),
+        focal_alpha=loss_cfg.get('focal_alpha', 0.25),
     )

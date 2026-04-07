@@ -119,6 +119,11 @@ class DeformableTransformerDecoder(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 xavier_uniform_(p)
+        # Focal loss bias prior: initialize class_head bias so that
+        # initial predicted probability ≈ prior_prob (0.01)
+        prior_prob = 0.01
+        bias_value = -math.log((1 - prior_prob) / prior_prob)
+        constant_(self.class_head.bias, bias_value)
 
     def forward(self, tgt, query_pos, memory, memory_spatial_shapes,
                 memory_level_start_index, memory_padding_mask=None):

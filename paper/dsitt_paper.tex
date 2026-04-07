@@ -245,7 +245,7 @@ SAS introduces a learnable per-query scale parameter that constrains deformable 
 s_i = \sigma(\text{MLP}(\mathbf{q}_i)) \in (0,1),\quad \Delta\mathbf{p}_{i,k} = s_i \cdot \tanh(\Delta\hat{\mathbf{p}}_{i,k}) \cdot r_\text{max},
 \end{equation}
 with $r_\text{max}=0.5$.
-A diversity loss $\mathcal{L}_\text{div}=-\text{Var}(\{s_i\}_{i=1}^N)$ prevents scale collapse.
+A diversity loss $\mathcal{L}_\text{div}=\max(0,\;\sigma_\text{target} - \text{std}(\{s_i\}_{i=1}^N))$ prevents scale collapse, where $\sigma_\text{target}=0.15$ is a target standard deviation threshold.
 
 \subsection{Motion View Enhancement}
 

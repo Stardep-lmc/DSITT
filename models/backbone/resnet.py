@@ -174,6 +174,7 @@ class Backbone(nn.Module):
             backbone = resnet50(weights=None)
 
         # Optionally freeze batch norm
+        self.freeze_bn = freeze_bn
         if freeze_bn:
             for module in backbone.modules():
                 if isinstance(module, nn.BatchNorm2d):
@@ -201,6 +202,15 @@ class Backbone(nn.Module):
 
         self.num_channels = d_model
         self.num_feature_levels = 4
+
+    def train(self, mode: bool = True):
+        """Override train() to keep frozen BN layers in eval mode."""
+        super().train(mode)
+        if mode and self.freeze_bn:
+            for module in self.backbone.modules():
+                if isinstance(module, nn.BatchNorm2d):
+                    module.eval()
+        return self
 
     def forward(self, x: torch.Tensor):
         """

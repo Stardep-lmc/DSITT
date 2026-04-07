@@ -398,9 +398,19 @@ class TrackQueryManager(nn.Module):
             if len(matched_q) > 0:
                 self._track_queries = track_queries[:, matched_q, :]
                 self._track_query_pos = track_pos[:, matched_q, :]
+
+                # Remap track_assignment: old absolute indices → new consecutive indices
+                # After filtering, matched_q[i] becomes index i in the new track queries
+                old_to_new = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(matched_q)}
+                remapped = {}
+                for tid, old_q_idx in self._track_assignment.items():
+                    if old_q_idx in old_to_new:
+                        remapped[tid] = old_to_new[old_q_idx]
+                self._track_assignment = remapped
             else:
                 self._track_queries = None
                 self._track_query_pos = None
+                self._track_assignment = {}
         else:
             # During inference, use active_mask
             if active_mask.any():

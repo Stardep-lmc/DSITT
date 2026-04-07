@@ -37,6 +37,8 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import torchvision.transforms.functional as TF
 
+from .transforms import DualModalityTransform
+
 
 class RGBTTinyDataset(Dataset):
     """
@@ -66,6 +68,9 @@ class RGBTTinyDataset(Dataset):
         self.clip_length = clip_length
         self.dummy_img_size = dummy_img_size
         self.img_dir = os.path.join(data_root, 'images')
+
+        # Data augmentation (only for training + dual modality)
+        self.transform = DualModalityTransform(train=(split == 'train'))
 
         # Try loading real data
         self.is_dummy = False
@@ -250,6 +255,15 @@ class RGBTTinyDataset(Dataset):
             img = self._load_image(seq, frame_idx)
             # Get annotations
             target = self._get_target(seq['name'], frame_idx, W, H)
+
+            # Apply augmentation for dual-modality
+            if self.modality == 'both' and isinstance(img, tuple):
+                img_rgb, img_ir = img
+                img_rgb, img_ir, target['boxes'] = self.transform(
+                    img_rgb, img_ir, target['boxes']
+                )
+                img = (img_rgb, img_ir)
+
             frames.append(img)
             targets.append(target)
 

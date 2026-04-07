@@ -193,8 +193,19 @@ class CMCLoss(nn.Module):
             # Using the same prediction heads as q_fused
             q_rgb_logits = class_head(q_rgb)   # [B, N_q, C]
             q_ir_logits = class_head(q_ir)
-            q_rgb_boxes = bbox_head(q_rgb)     # [B, N_q, 4]
-            q_ir_boxes = bbox_head(q_ir)
+
+            # Box predictions: apply offset to reference_points (same as decoder)
+            reference_points = output['reference_points']  # [B, N_q, 2]
+            q_rgb_offset = bbox_head(q_rgb)    # [B, N_q, 4]
+            q_rgb_boxes = torch.cat([
+                (reference_points + q_rgb_offset[..., :2]).sigmoid(),
+                q_rgb_offset[..., 2:].sigmoid()
+            ], dim=-1)
+            q_ir_offset = bbox_head(q_ir)      # [B, N_q, 4]
+            q_ir_boxes = torch.cat([
+                (reference_points + q_ir_offset[..., :2]).sigmoid(),
+                q_ir_offset[..., 2:].sigmoid()
+            ], dim=-1)
 
             # Prediction consistency
             consistency = self.pred_consistency(

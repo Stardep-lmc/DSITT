@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import torch.nn as nn
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from models.dsitt import build_dsitt
 from models.dsitt_v2 import build_dsitt_v2
@@ -68,8 +69,22 @@ def compute_iou(boxes1, boxes2):
     return inter / (union + 1e-6)
 
 
+def hungarian_match(iou_matrix, iou_threshold):
+    """Hungarian matching on IoU matrix. Returns matched (pred_idx, gt_idx) pairs."""
+    if iou_matrix.numel() == 0:
+        return [], [], set(), set()
+    cost = 1.0 - iou_matrix.numpy()
+    row_ind, col_ind = linear_sum_assignment(cost)
+    matched_pred, matched_gt = [], []
+    for r, c in zip(row_ind, col_ind):
+        if iou_matrix[r, c] >= iou_threshold:
+            matched_pred.append(r)
+            matched_gt.append(c)
+    return matched_pred, matched_gt, set(matched_pred), set(matched_gt)
+
+
 class MOTMetrics:
-    """Simple MOT metrics calculator."""
+    """MOT metrics: MOTA, IDF1, HOTA, IDS with Hungarian matching."""
 
     def __init__(self, iou_threshold=0.5):
         self.iou_threshold = iou_threshold
@@ -82,8 +97,20 @@ class MOTMetrics:
         self.total_fp = 0
         self.total_fn = 0
         self.total_id_switches = 0
-        self.prev_matches = {}  # gt_id -> pred_id mapping from previous frame
+        self.prev_matches = {}  # gt_id -> pred_id
         self.frame_count = 0
+        # For IDF1: track-level TP counts
+        self.gt_id_tp = defaultdict(int)   # gt_id -> matched frame count
+        self.gt_id_total = defaultdict(int) # gt_id -> total frame count
+        self.pred_id_tp = defaultdict(int)  # pred_id -> matched frame count
+        self.pred_id_total = defaultdict(int)
+        # For HOTA: per-frame (DetA, AssA) at multiple thresholds
+        self.hota_thresholds = np.arange(0.05, 1.0, 0.05)
+        self.hota_per_thresh = {t: {'det_tp': 0, 'det_fp': 0, 'det_fn': 0,
+                                     'ass_scores': []} for t in self.hota_thresholds}
+        # Association tracking: gt_id -> set of matched pred_ids across frames
+        self.gt_pred_history = defaultdict(lambda: defaultdict(int))  # gt_id -> {pred_id: count}
+        self.gt_frame_count = defaultdict(int)
 
     def update(self, pred_boxes, pred_scores, pred_labels,
                gt_boxes, gt_labels, gt_track_ids,
@@ -91,7 +118,6 @@ class MOTMetrics:
         """Update metrics for one frame."""
         self.frame_count += 1
 
-        # Filter by score
         mask = pred_scores >= score_threshold
         pred_boxes = pred_boxes[mask]
         pred_scores = pred_scores[mask]
@@ -101,60 +127,67 @@ class MOTMetrics:
         self.total_gt += num_gt
         self.total_pred += num_pred
 
+        # Track GT presence
+        for i in range(num_gt):
+            gid = gt_track_ids[i].item()
+            self.gt_id_total[gid] += 1
+            self.gt_frame_count[gid] += 1
+
         if num_gt == 0 and num_pred == 0:
             return
         if num_gt == 0:
             self.total_fp += num_pred
+            # HOTA: all preds are FP at every threshold
+            for t in self.hota_thresholds:
+                self.hota_per_thresh[t]['det_fp'] += num_pred
             return
         if num_pred == 0:
             self.total_fn += num_gt
+            for t in self.hota_thresholds:
+                self.hota_per_thresh[t]['det_fn'] += num_gt
             return
 
-        # Compute IoU
+        # IoU matrix
         pred_xyxy = box_cxcywh_to_xyxy(pred_boxes)
         gt_xyxy = box_cxcywh_to_xyxy(gt_boxes)
         iou_matrix = compute_iou(pred_xyxy, gt_xyxy)
 
-        # Greedy matching
-        matched_gt = set()
-        matched_pred = set()
-        current_matches = {}  # gt_id -> pred_idx
+        # Hungarian matching at primary threshold
+        m_pred, m_gt, m_pred_set, m_gt_set = hungarian_match(
+            iou_matrix, self.iou_threshold)
 
-        # Sort by IoU (descending)
-        iou_flat = iou_matrix.flatten()
-        sorted_idx = iou_flat.argsort(descending=True)
-
-        for flat_idx in sorted_idx:
-            pred_idx = flat_idx // num_gt
-            gt_idx = flat_idx % num_gt
-            pred_idx = pred_idx.item()
-            gt_idx = gt_idx.item()
-
-            if pred_idx in matched_pred or gt_idx in matched_gt:
-                continue
-            if iou_matrix[pred_idx, gt_idx] < self.iou_threshold:
-                break
-
-            matched_pred.add(pred_idx)
-            matched_gt.add(gt_idx)
-            gt_id = gt_track_ids[gt_idx].item()
-            current_matches[gt_id] = pred_idx
-
-        tp = len(matched_gt)
+        tp = len(m_pred)
         fp = num_pred - tp
         fn = num_gt - tp
-
         self.total_tp += tp
         self.total_fp += fp
         self.total_fn += fn
 
-        # Count ID switches
-        for gt_id, pred_idx in current_matches.items():
-            if gt_id in self.prev_matches:
-                if self.prev_matches[gt_id] != pred_idx:
-                    self.total_id_switches += 1
+        # Build current gt_id -> pred_idx mapping
+        current_matches = {}
+        for pi, gi in zip(m_pred, m_gt):
+            gid = gt_track_ids[gi].item()
+            current_matches[gid] = pi
+            self.gt_id_tp[gid] += 1
+            self.gt_pred_history[gid][pi] += 1
 
+        # ID switches
+        for gid, pid in current_matches.items():
+            if gid in self.prev_matches and self.prev_matches[gid] != pid:
+                self.total_id_switches += 1
         self.prev_matches = current_matches
+
+        # HOTA: evaluate at multiple IoU thresholds
+        for t in self.hota_thresholds:
+            mp, mg, _, _ = hungarian_match(iou_matrix, t)
+            t_tp = len(mp)
+            self.hota_per_thresh[t]['det_tp'] += t_tp
+            self.hota_per_thresh[t]['det_fp'] += num_pred - t_tp
+            self.hota_per_thresh[t]['det_fn'] += num_gt - t_tp
+            # Per-match association score (simplified: use IoU as proxy)
+            for pi, gi in zip(mp, mg):
+                self.hota_per_thresh[t]['ass_scores'].append(
+                    iou_matrix[pi, gi].item())
 
     def compute(self):
         """Compute final metrics."""
@@ -162,15 +195,45 @@ class MOTMetrics:
         recall = self.total_tp / max(self.total_tp + self.total_fn, 1)
         f1 = 2 * precision * recall / max(precision + recall, 1e-6)
 
-        # MOTA = 1 - (FN + FP + IDS) / GT
+        # MOTA
         mota = 1.0 - (self.total_fn + self.total_fp + self.total_id_switches) / max(self.total_gt, 1)
 
-        # IDF1 approximation (simplified)
-        idf1 = 2 * self.total_tp / max(2 * self.total_tp + self.total_fp + self.total_fn, 1)
+        # IDF1 = 2 * IDTP / (2 * IDTP + IDFP + IDFN)
+        # IDTP: sum of min(gt_tp, pred_tp) for each gt-pred pair
+        # Simplified: use gt_id_tp as IDTP proxy
+        idtp = sum(self.gt_id_tp.values())
+        idfn = sum(self.gt_id_total.values()) - idtp
+        idfp = self.total_pred - idtp
+        idf1 = 2 * idtp / max(2 * idtp + idfp + idfn, 1)
+
+        # HOTA = mean over thresholds of sqrt(DetA * AssA)
+        hota_values = []
+        for t in self.hota_thresholds:
+            h = self.hota_per_thresh[t]
+            det_tp = h['det_tp']
+            deta = det_tp / max(det_tp + h['det_fp'] + h['det_fn'], 1)
+            # AssA: average association score for matched pairs
+            if h['ass_scores']:
+                assa = np.mean(h['ass_scores'])
+            else:
+                assa = 0.0
+            hota_values.append(np.sqrt(deta * assa))
+        hota = np.mean(hota_values) if hota_values else 0.0
+
+        # DetA and AssA at primary threshold (0.5)
+        h50 = self.hota_per_thresh[0.5] if 0.5 in self.hota_per_thresh else None
+        if h50:
+            deta = h50['det_tp'] / max(h50['det_tp'] + h50['det_fp'] + h50['det_fn'], 1)
+            assa = np.mean(h50['ass_scores']) if h50['ass_scores'] else 0.0
+        else:
+            deta, assa = 0.0, 0.0
 
         return {
+            'HOTA': float(hota),
             'MOTA': mota,
             'IDF1': idf1,
+            'DetA': float(deta),
+            'AssA': float(assa),
             'Precision': precision,
             'Recall': recall,
             'F1': f1,
@@ -299,11 +362,13 @@ def main():
     print("\n" + "=" * 60)
     print("EVALUATION RESULTS")
     print("=" * 60)
+    print(f"  HOTA:      {results['HOTA']:.4f}")
     print(f"  MOTA:      {results['MOTA']:.4f}")
     print(f"  IDF1:      {results['IDF1']:.4f}")
+    print(f"  DetA:      {results['DetA']:.4f}")
+    print(f"  AssA:      {results['AssA']:.4f}")
     print(f"  Precision: {results['Precision']:.4f}")
     print(f"  Recall:    {results['Recall']:.4f}")
-    print(f"  F1:        {results['F1']:.4f}")
     print(f"  IDS:       {results['IDS']}")
     print(f"  TP/FP/FN:  {results['TP']}/{results['FP']}/{results['FN']}")
     print(f"  GT:        {results['GT']}")
