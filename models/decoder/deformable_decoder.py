@@ -140,6 +140,8 @@ class DeformableTransformerDecoder(nn.Module):
             outputs_class: [B, N_q, num_classes] classification logits
             outputs_coord: [B, N_q, 4] predicted boxes (cx, cy, w, h) normalized
             reference_points: [B, N_q, 2] reference points used
+            aux_outputs_class: list of [B, N_q, num_classes] per layer
+            aux_outputs_coord: list of [B, N_q, 4] per layer
         """
         output = tgt
 
@@ -150,7 +152,10 @@ class DeformableTransformerDecoder(nn.Module):
             1, 1, self.n_levels, 1
         )
 
-        # Decoder layers
+        aux_outputs_class = []
+        aux_outputs_coord = []
+
+        # Decoder layers with iterative reference point refinement
         for layer in self.layers:
             output = layer(
                 output, query_pos, reference_points_input,
@@ -158,17 +163,27 @@ class DeformableTransformerDecoder(nn.Module):
                 memory_padding_mask
             )
 
-        # Final predictions
-        outputs_class = self.class_head(output)
-        # Predict box offsets relative to reference points
-        bbox_offset = self.bbox_head(output)
-        # Convert to absolute coordinates
-        outputs_coord = torch.cat([
-            (reference_points + bbox_offset[..., :2]).sigmoid(),
-            bbox_offset[..., 2:].sigmoid()
-        ], dim=-1)
+            # Auxiliary predictions from each layer
+            cls_l = self.class_head(output)
+            bbox_offset = self.bbox_head(output)
+            coord_l = torch.cat([
+                (reference_points + bbox_offset[..., :2]).sigmoid(),
+                bbox_offset[..., 2:].sigmoid()
+            ], dim=-1)
+            aux_outputs_class.append(cls_l)
+            aux_outputs_coord.append(coord_l)
 
-        return output, outputs_class, outputs_coord, reference_points
+            # Refine reference points for next layer
+            reference_points = (reference_points + bbox_offset[..., :2]).sigmoid().detach()
+            reference_points_input = reference_points[:, :, None, :].repeat(
+                1, 1, self.n_levels, 1
+            )
+
+        # Final predictions = last layer's predictions
+        outputs_class = aux_outputs_class[-1]
+        outputs_coord = aux_outputs_coord[-1]
+
+        return output, outputs_class, outputs_coord, reference_points, aux_outputs_class, aux_outputs_coord
 
 
 class MLP(nn.Module):

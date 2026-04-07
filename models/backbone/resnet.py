@@ -173,14 +173,10 @@ class Backbone(nn.Module):
         else:
             backbone = resnet50(weights=None)
 
-        # Optionally freeze batch norm
+        # Optionally freeze batch norm by replacing with FrozenBatchNorm2d
         self.freeze_bn = freeze_bn
         if freeze_bn:
-            for module in backbone.modules():
-                if isinstance(module, nn.BatchNorm2d):
-                    module.weight.requires_grad_(False)
-                    module.bias.requires_grad_(False)
-                    module.eval()
+            self._replace_bn_with_frozen(backbone)
 
         # ResNet channel dimensions: layer1=256, layer2=512, layer3=1024, layer4=2048
         self.backbone = BackboneBase(
@@ -203,14 +199,19 @@ class Backbone(nn.Module):
         self.num_channels = d_model
         self.num_feature_levels = 4
 
-    def train(self, mode: bool = True):
-        """Override train() to keep frozen BN layers in eval mode."""
-        super().train(mode)
-        if mode and self.freeze_bn:
-            for module in self.backbone.modules():
-                if isinstance(module, nn.BatchNorm2d):
-                    module.eval()
-        return self
+    @staticmethod
+    def _replace_bn_with_frozen(module: nn.Module):
+        """Recursively replace all BatchNorm2d with FrozenBatchNorm2d."""
+        for name, child in module.named_children():
+            if isinstance(child, nn.BatchNorm2d):
+                frozen = FrozenBatchNorm2d(child.num_features)
+                frozen.weight.copy_(child.weight)
+                frozen.bias.copy_(child.bias)
+                frozen.running_mean.copy_(child.running_mean)
+                frozen.running_var.copy_(child.running_var)
+                setattr(module, name, frozen)
+            else:
+                Backbone._replace_bn_with_frozen(child)
 
     def forward(self, x: torch.Tensor):
         """

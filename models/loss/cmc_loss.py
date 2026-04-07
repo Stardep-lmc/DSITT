@@ -64,13 +64,14 @@ class PredictionConsistencyLoss(nn.Module):
         box_loss = F.l1_loss(rgb_boxes, ir_boxes)
 
         # Class consistency (symmetric KL divergence)
-        rgb_prob = F.log_softmax(rgb_cls, dim=-1)
-        ir_prob = F.softmax(ir_cls.detach(), dim=-1)  # detach one side for stability
-        kl_rgb_ir = F.kl_div(rgb_prob, ir_prob, reduction='batchmean')
+        # Both sides receive gradients for full bidirectional optimization
+        rgb_log_prob = F.log_softmax(rgb_cls, dim=-1)
+        ir_prob = F.softmax(ir_cls, dim=-1)
+        kl_rgb_ir = F.kl_div(rgb_log_prob, ir_prob, reduction='batchmean')
 
-        ir_prob_log = F.log_softmax(ir_cls, dim=-1)
-        rgb_prob_soft = F.softmax(rgb_cls.detach(), dim=-1)
-        kl_ir_rgb = F.kl_div(ir_prob_log, rgb_prob_soft, reduction='batchmean')
+        ir_log_prob = F.log_softmax(ir_cls, dim=-1)
+        rgb_prob = F.softmax(rgb_cls, dim=-1)
+        kl_ir_rgb = F.kl_div(ir_log_prob, rgb_prob, reduction='batchmean')
 
         cls_loss = (kl_rgb_ir + kl_ir_rgb) / 2.0
 

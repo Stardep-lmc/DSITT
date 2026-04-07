@@ -319,6 +319,13 @@ class ModalityAwareDecoder(nn.Module):
             aux_outputs_class.append(cls_l)
             aux_outputs_coord.append(coord_l)
 
+            # Iterative reference point refinement (detached to prevent
+            # gradients flowing through reference points across layers)
+            reference_points = (reference_points + bbox_off_l[..., :2]).sigmoid().detach()
+            ref_points_input = reference_points[:, :, None, :].repeat(
+                1, 1, self.n_levels, 1
+            )
+
         # Final predictions = last layer's predictions
         outputs_class = aux_outputs_class[-1]
         outputs_coord = aux_outputs_coord[-1]

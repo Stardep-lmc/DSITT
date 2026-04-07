@@ -27,6 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 from models.dsitt import build_dsitt
 from models.dsitt_v2 import build_dsitt_v2
 from datasets.rgbt_tiny import build_rgbt_tiny_dataset
+from tools.eval import evaluate
 
 
 def parse_args():
@@ -55,6 +56,8 @@ def parse_args():
                         help='Use automatic mixed precision (fp16)')
     parser.add_argument('--num_workers', type=int, default=2,
                         help='Dataloader num_workers')
+    parser.add_argument('--accum_steps', type=int, default=1,
+                        help='Gradient accumulation steps (effective batch = batch_size * accum_steps)')
     return parser.parse_args()
 
 
@@ -90,8 +93,11 @@ def train_one_epoch(
     global_step: int = 0,
     use_amp: bool = False,
     scaler: GradScaler = None,
+    lr_scheduler=None,
+    warmup_iters: int = 0,
+    accum_steps: int = 1,
 ) -> int:
-    """Train for one epoch."""
+    """Train for one epoch with optional gradient accumulation."""
     model.train()
 
     total_loss = 0.0
@@ -104,11 +110,9 @@ def train_one_epoch(
     for batch_idx, (frames, targets) in enumerate(dataloader):
         # Move to device — handle both single and dual modality
         if isinstance(frames[0], (list, tuple)):
-            # Dual modality: frames = [(rgb, ir), (rgb, ir), ...]
             frames_rgb = [f[0].to(device) for f in frames]
             frames_ir = [f[1].to(device) for f in frames]
         else:
-            # Single modality or dummy: frames = [tensor, tensor, ...]
             frames_moved = [f.to(device) for f in frames]
             frames_rgb = frames_moved
             frames_ir = frames_moved
@@ -120,8 +124,8 @@ def train_one_epoch(
                 for k, v in t.items()
             })
 
-        # Forward with optional AMP
-        optimizer.zero_grad()
+        # Forward + backward (with gradient accumulation)
+        is_accum_step = ((batch_idx + 1) % accum_steps != 0) and (batch_idx + 1 < len(dataloader))
 
         if use_amp and scaler is not None:
             with autocast():
@@ -129,28 +133,36 @@ def train_one_epoch(
                     loss_dict = model(frames_rgb, frames_ir, targets_device)
                 else:
                     loss_dict = model(frames_rgb, targets_device)
-                loss = loss_dict['loss']
+                loss = loss_dict['loss'] / accum_steps
 
             scaler.scale(loss).backward()
-            if max_norm > 0:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            scaler.step(optimizer)
-            scaler.update()
+            if not is_accum_step:
+                if max_norm > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
         else:
             if hasattr(model, 'dual_backbone'):
                 loss_dict = model(frames_rgb, frames_ir, targets_device)
             else:
                 loss_dict = model(frames_rgb, targets_device)
-            loss = loss_dict['loss']
+            loss = loss_dict['loss'] / accum_steps
 
             loss.backward()
-            if max_norm > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            optimizer.step()
+            if not is_accum_step:
+                if max_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                optimizer.step()
+                optimizer.zero_grad()
 
-        # Accumulate stats
-        total_loss += loss.item()
+        # Step LR scheduler on each optimizer step (not each micro-batch)
+        if not is_accum_step and lr_scheduler is not None:
+            lr_scheduler.step()
+
+        # Accumulate stats (use unscaled loss for logging)
+        total_loss += loss.item() * accum_steps
         total_cls += loss_dict['loss_cls'].item() if isinstance(loss_dict['loss_cls'], torch.Tensor) else loss_dict['loss_cls']
         total_l1 += loss_dict['loss_l1'].item() if isinstance(loss_dict['loss_l1'], torch.Tensor) else loss_dict['loss_l1']
         box_loss_key = 'loss_nwd' if 'loss_nwd' in loss_dict else 'loss_giou'
@@ -242,6 +254,16 @@ def main():
         num_workers=num_workers,
     )
 
+    # Build validation dataloader for best model tracking
+    val_dataset, val_dataloader = build_rgbt_tiny_dataset(
+        data_root=data_root,
+        split='test',
+        modality=modality,
+        clip_length=2,
+        batch_size=1,
+        num_workers=0,
+    )
+
     # Optimizer
     backbone_params = []
     other_params = []
@@ -258,9 +280,28 @@ def main():
         {'params': other_params, 'lr': lr},
     ], weight_decay=train_cfg.get('weight_decay', 1e-4))
 
-    # LR Scheduler
+    # LR Scheduler with warmup
+    from torch.optim.lr_scheduler import LinearLR, StepLR, SequentialLR
+
+    warmup_iters = train_cfg.get('warmup_iters', 1000)
     lr_drop = train_cfg.get('lr_drop_epoch', 100)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, lr_drop, gamma=0.1)
+    iters_per_epoch = len(dataloader)
+
+    def build_lr_scheduler(optimizer, warmup_iters, lr_drop, iters_per_epoch):
+        """Build LR scheduler with correct step_size for current dataset."""
+        warmup_scheduler = LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_iters
+        )
+        main_scheduler = StepLR(
+            optimizer, step_size=lr_drop * iters_per_epoch, gamma=0.1
+        )
+        return SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, main_scheduler],
+            milestones=[warmup_iters],
+        )
+
+    lr_scheduler = build_lr_scheduler(optimizer, warmup_iters, lr_drop, iters_per_epoch)
 
     # AMP scaler
     scaler = GradScaler() if args.amp else None
@@ -273,18 +314,39 @@ def main():
         checkpoint = torch.load(args.resume, map_location=device)
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
-        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+
+        # Check if iters_per_epoch changed; if so, rebuild scheduler with correct step_size
+        saved_iters = checkpoint.get('iters_per_epoch', None)
+        if saved_iters is not None and saved_iters != iters_per_epoch:
+            print(f"  [WARNING] iters_per_epoch changed: {saved_iters} -> {iters_per_epoch}")
+            print(f"  Rebuilding LR scheduler with current iters_per_epoch")
+            lr_scheduler = build_lr_scheduler(optimizer, warmup_iters, lr_drop, iters_per_epoch)
+            # Fast-forward scheduler to match global_step
+            saved_step = checkpoint.get('global_step', 0)
+            for _ in range(saved_step):
+                lr_scheduler.step()
+        else:
+            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+
         start_epoch = checkpoint['epoch'] + 1
         global_step = checkpoint.get('global_step', 0)
         if scaler is not None and 'scaler' in checkpoint:
             scaler.load_state_dict(checkpoint['scaler'])
         print(f"Resumed at epoch {start_epoch}")
 
+    # Best model tracking
+    best_mota = -float('inf')
+    best_epoch = 0
+
     # Training loop
     print(f"\n=== Training for {epochs} epochs (from epoch {start_epoch}) ===")
-    print(f"LR: {lr}, LR drop at epoch {lr_drop}")
+    accum_steps = args.accum_steps
+    print(f"LR: {lr}, Warmup: {warmup_iters} iters, LR drop at epoch {lr_drop}")
+    print(f"Gradient accumulation: {accum_steps} steps (effective batch = {accum_steps})")
     print(f"Clip schedule: {clip_schedule}")
     print()
+
+    optimizer.zero_grad()  # Initialize gradients for accumulation
 
     for epoch in range(start_epoch, epochs + 1):
         # Update clip length based on schedule
@@ -300,12 +362,11 @@ def main():
             max_norm=max_norm, print_freq=args.print_freq,
             writer=writer, global_step=global_step,
             use_amp=args.amp, scaler=scaler,
+            lr_scheduler=lr_scheduler, warmup_iters=warmup_iters,
+            accum_steps=accum_steps,
         )
 
-        # Step LR scheduler
-        lr_scheduler.step()
-
-        # Save checkpoint
+        # Save checkpoint + validate at save_freq epochs
         if epoch % args.save_freq == 0 or epoch == epochs:
             checkpoint = {
                 'model': model.state_dict(),
@@ -313,6 +374,7 @@ def main():
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch,
                 'global_step': global_step,
+                'iters_per_epoch': iters_per_epoch,
                 'config': config,
             }
             if scaler is not None:
@@ -323,8 +385,32 @@ def main():
             torch.save(checkpoint, save_path)
             print(f"  Saved checkpoint: {save_path}")
 
+            # Validation for best model tracking
+            print(f"  Running validation...")
+            val_results = evaluate(model, val_dataloader, device, score_threshold=0.3)
+            val_mota = val_results['MOTA']
+            val_hota = val_results['HOTA']
+            print(f"  Val MOTA: {val_mota:.4f}, HOTA: {val_hota:.4f}, "
+                  f"IDF1: {val_results['IDF1']:.4f}")
+
+            if writer is not None:
+                writer.add_scalar('val/MOTA', val_mota, epoch)
+                writer.add_scalar('val/HOTA', val_hota, epoch)
+                writer.add_scalar('val/IDF1', val_results['IDF1'], epoch)
+
+            # Save best model
+            if val_mota > best_mota:
+                best_mota = val_mota
+                best_epoch = epoch
+                best_path = os.path.join(
+                    args.output_dir, 'checkpoints', 'checkpoint_best.pth'
+                )
+                torch.save(checkpoint, best_path)
+                print(f"  ★ New best model! MOTA={best_mota:.4f} (epoch {epoch})")
+
     writer.close()
-    print("\n=== Training Complete ===")
+    print(f"\n=== Training Complete ===")
+    print(f"Best MOTA: {best_mota:.4f} at epoch {best_epoch}")
 
 
 if __name__ == '__main__':

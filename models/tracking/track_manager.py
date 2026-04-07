@@ -75,6 +75,15 @@ class QueryInteractionModule(nn.Module):
             # Only keep queries with reasonable scores
             score_mask = scores > 0.5
             active_mask = keep_mask & score_mask
+
+            # Random insertion of false-positive track queries
+            if self.p_insert > 0:
+                n_insert = max(1, int(self.p_insert * N_q))
+                inactive = (~active_mask[0]).nonzero(as_tuple=True)[0]
+                if len(inactive) > 0:
+                    perm = torch.randperm(len(inactive), device=hidden_states.device)
+                    insert_idx = inactive[perm[:n_insert]]
+                    active_mask[0, insert_idx] = True
         else:
             # During inference, use score threshold
             active_mask = scores > 0.5

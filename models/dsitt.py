@@ -121,11 +121,11 @@ class DSITT(nn.Module):
         tgt, query_pos = self.track_manager.get_queries(image.device)
 
         # Decode
-        hidden_states, outputs_class, outputs_coord, ref_points = self.decoder(
+        hidden_states, outputs_class, outputs_coord, ref_points, aux_cls, aux_coord = self.decoder(
             tgt, query_pos, memory, spatial_shapes, level_start_index
         )
 
-        return hidden_states, query_pos, outputs_class, outputs_coord
+        return hidden_states, query_pos, outputs_class, outputs_coord, aux_cls, aux_coord
 
     def forward(
         self,
@@ -151,14 +151,16 @@ class DSITT(nn.Module):
 
         for t, frame in enumerate(frames):
             # Forward single frame
-            hidden_states, query_pos, outputs_class, outputs_coord = \
+            hidden_states, query_pos, outputs_class, outputs_coord, aux_cls, aux_coord = \
                 self.forward_single_frame(frame)
 
-            # Store outputs
+            # Store outputs (including auxiliary for deep supervision)
             frame_output = {
                 'pred_logits': outputs_class,
                 'pred_boxes': outputs_coord,
                 'hidden_states': hidden_states,
+                'aux_outputs_class': aux_cls,
+                'aux_outputs_coord': aux_coord,
             }
             frame_outputs.append(frame_output)
 

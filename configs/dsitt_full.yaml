@@ -53,6 +53,7 @@ train:
   weight_decay: 1.0e-4
   epochs: 200
   lr_drop_epoch: 100
+  warmup_iters: 1000
   clip_max_norm: 0.1
   optimizer: adamw
 

@@ -26,10 +26,12 @@ class MTUQQueryInteractionModule(nn.Module):
     Extended QIM that projects all four query views for the next frame.
     """
 
-    def __init__(self, d_model: int = 256, p_drop: float = 0.1):
+    def __init__(self, d_model: int = 256, p_drop: float = 0.1,
+                 p_insert: float = 0.1):
         super().__init__()
         self.d_model = d_model
         self.p_drop = p_drop
+        self.p_insert = p_insert
 
         # Project each view independently
         self.proj_rgb = nn.Sequential(
@@ -69,6 +71,15 @@ class MTUQQueryInteractionModule(nn.Module):
             keep_mask = torch.rand(B, N, device=scores.device) > self.p_drop
             score_mask = scores > 0.5
             active_mask = keep_mask & score_mask
+
+            # Random insertion of false-positive track queries
+            if self.p_insert > 0:
+                n_insert = max(1, int(self.p_insert * N))
+                inactive = (~active_mask[0]).nonzero(as_tuple=True)[0]
+                if len(inactive) > 0:
+                    perm = torch.randperm(len(inactive), device=scores.device)
+                    insert_idx = inactive[perm[:n_insert]]
+                    active_mask[0, insert_idx] = True
         else:
             active_mask = scores > 0.5
 
@@ -92,7 +103,8 @@ class MTUQManager(nn.Module):
     """
 
     def __init__(self, d_model: int = 256, num_queries: int = 300,
-                 p_drop: float = 0.1, match_cost_type: str = 'nwd',
+                 p_drop: float = 0.1, p_insert: float = 0.1,
+                 match_cost_type: str = 'nwd',
                  nwd_constant: float = 0.1):
         super().__init__()
         self.d_model = d_model
@@ -106,7 +118,7 @@ class MTUQManager(nn.Module):
         self.detect_query_pos = nn.Embedding(num_queries, d_model)
 
         # MTUQ-QIM
-        self.qim = MTUQQueryInteractionModule(d_model, p_drop)
+        self.qim = MTUQQueryInteractionModule(d_model, p_drop, p_insert)
 
         # TALA (operates on q_fused, same as before)
         self.tala = TrajectoryAwareLabelAssignment(

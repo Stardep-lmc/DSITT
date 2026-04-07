@@ -49,6 +49,7 @@ class DSITTv2(nn.Module):
         num_classes: int = 7,
         backbone_pretrained: bool = True,
         p_drop: float = 0.1,
+        p_insert: float = 0.1,
         box_loss_type: str = 'nwd',
         nwd_constant: float = 0.1,
         modality_dropout: float = 0.1,
@@ -90,7 +91,8 @@ class DSITTv2(nn.Module):
         # MTUQ Query Manager
         self.mtuq_manager = MTUQManager(
             d_model=d_model, num_queries=num_queries,
-            p_drop=p_drop, match_cost_type=box_loss_type,
+            p_drop=p_drop, p_insert=p_insert,
+            match_cost_type=box_loss_type,
             nwd_constant=nwd_constant,
         )
 
@@ -318,6 +320,7 @@ def build_dsitt_v2(config: Optional[Dict] = None) -> DSITTv2:
         num_classes=model_cfg.get('num_classes', 7),
         backbone_pretrained=True,
         p_drop=tracking_cfg.get('p_drop', 0.1),
+        p_insert=tracking_cfg.get('p_insert', 0.1),
         box_loss_type=loss_cfg.get('box_loss_type', 'nwd'),
         nwd_constant=loss_cfg.get('nwd_constant', 0.1),
         modality_dropout=model_cfg.get('modality_dropout', 0.1),

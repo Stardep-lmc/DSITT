@@ -23,6 +23,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 from models.dsitt import build_dsitt
 from models.dsitt_v2 import build_dsitt_v2
@@ -247,11 +251,96 @@ class MOTMetrics:
         }
 
 
+CLASSES = ['ship', 'car', 'cyclist', 'pedestrian', 'bus', 'drone', 'plane']
+# Distinct colors for up to 20 track IDs (cycled)
+TRACK_COLORS = [
+    '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF',
+    '#FF8000', '#8000FF', '#0080FF', '#FF0080', '#80FF00', '#00FF80',
+    '#FF4040', '#40FF40', '#4040FF', '#FFA500', '#A500FF', '#00A5FF',
+    '#FF6666', '#66FF66',
+]
+
+
+def visualize_frame(image_tensor, pred_boxes, pred_scores, pred_labels,
+                    gt_boxes, gt_labels, score_threshold, save_path,
+                    img_w=640, img_h=512):
+    """
+    Draw predicted and GT boxes on an image and save to file.
+
+    Args:
+        image_tensor: [3, H, W] normalized tensor (or None for dummy)
+        pred_boxes: [N, 4] (cx, cy, w, h) normalized [0,1]
+        pred_scores: [N] confidence scores
+        pred_labels: [N] class indices
+        gt_boxes: [M, 4] (cx, cy, w, h) normalized [0,1]
+        gt_labels: [M] class indices
+        score_threshold: filter predictions below this
+        save_path: output file path
+        img_w, img_h: image dimensions for denormalization
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    # Try to show the image (denormalize)
+    if image_tensor is not None and image_tensor.dim() == 3:
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+        img = image_tensor.cpu() * std + mean
+        img = img.clamp(0, 1).permute(1, 2, 0).numpy()
+        ax.imshow(img)
+        img_h, img_w = img.shape[:2]
+    else:
+        ax.set_xlim(0, img_w)
+        ax.set_ylim(img_h, 0)
+        ax.set_facecolor('black')
+
+    # Draw GT boxes (green dashed)
+    for i in range(gt_boxes.shape[0]):
+        cx, cy, w, h = gt_boxes[i].tolist()
+        x1 = (cx - w / 2) * img_w
+        y1 = (cy - h / 2) * img_h
+        bw = w * img_w
+        bh = h * img_h
+        cls_name = CLASSES[gt_labels[i].item()] if gt_labels[i].item() < len(CLASSES) else '?'
+        rect = patches.Rectangle((x1, y1), bw, bh, linewidth=1.5,
+                                  edgecolor='lime', facecolor='none', linestyle='--')
+        ax.add_patch(rect)
+        ax.text(x1, y1 - 2, f'GT:{cls_name}', fontsize=6, color='lime',
+                backgroundcolor=(0, 0, 0, 0.4))
+
+    # Draw predicted boxes (colored by index, solid)
+    mask = pred_scores >= score_threshold
+    for i in range(pred_boxes.shape[0]):
+        if not mask[i]:
+            continue
+        cx, cy, w, h = pred_boxes[i].tolist()
+        x1 = (cx - w / 2) * img_w
+        y1 = (cy - h / 2) * img_h
+        bw = w * img_w
+        bh = h * img_h
+        color = TRACK_COLORS[i % len(TRACK_COLORS)]
+        cls_name = CLASSES[pred_labels[i].item()] if pred_labels[i].item() < len(CLASSES) else '?'
+        score = pred_scores[i].item()
+        rect = patches.Rectangle((x1, y1), bw, bh, linewidth=2,
+                                  edgecolor=color, facecolor='none')
+        ax.add_patch(rect)
+        ax.text(x1, y1 - 2, f'{cls_name}:{score:.2f}', fontsize=6, color=color,
+                backgroundcolor=(0, 0, 0, 0.4))
+
+    ax.set_axis_off()
+    fig.tight_layout(pad=0)
+    fig.savefig(save_path, dpi=120, bbox_inches='tight', pad_inches=0)
+    plt.close(fig)
+
+
 @torch.no_grad()
-def evaluate(model, dataloader, device, score_threshold=0.3):
+def evaluate(model, dataloader, device, score_threshold=0.3,
+             visualize=False, vis_dir=None):
     """Run evaluation on test set."""
     model.eval()
     metrics = MOTMetrics(iou_threshold=0.5)
+
+    if visualize and vis_dir:
+        os.makedirs(vis_dir, exist_ok=True)
 
     total_time = 0
     num_frames = 0
@@ -300,6 +389,21 @@ def evaluate(model, dataloader, device, score_threshold=0.3):
                 gt_boxes, gt_labels, gt_track_ids,
                 score_threshold=score_threshold,
             )
+
+            # Visualization
+            if visualize and vis_dir and num_frames < 200:
+                # Get image tensor for visualization
+                img_tensor = None
+                if isinstance(frames[0], (tuple, list)):
+                    img_tensor = frames[t][0][0].cpu() if t < len(frames) else None
+                elif t < len(frames):
+                    img_tensor = frames[t][0].cpu()
+                vis_path = os.path.join(vis_dir, f'frame_{num_frames:05d}.png')
+                visualize_frame(
+                    img_tensor, boxes.cpu(), scores.cpu(), labels.cpu(),
+                    gt_boxes, gt_labels, score_threshold, vis_path,
+                )
+
             num_frames += 1
 
         if (batch_idx + 1) % 10 == 0:
@@ -354,9 +458,13 @@ def main():
     )
 
     # Evaluate
+    vis_dir = os.path.join(args.output_dir, 'visualizations') if args.visualize else None
     print(f"\n=== Evaluating ({len(dataset)} sequences) ===")
+    if args.visualize:
+        print(f"  Visualization enabled, saving to {vis_dir} (first 200 frames)")
     results = evaluate(model, dataloader, device,
-                       score_threshold=args.score_threshold)
+                       score_threshold=args.score_threshold,
+                       visualize=args.visualize, vis_dir=vis_dir)
 
     # Print results
     print("\n" + "=" * 60)
