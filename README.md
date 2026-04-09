@@ -12,14 +12,11 @@ Query-level cross-modal fusion via Modality-Temporal Unified Queries for RGBT ti
 - **CUDA**: 11.8+ (with PyTorch 2.0+)
 
 ### 2. 克隆仓库
-
 ```bash
 git clone https://github.com/Stardep-lmc/DSITT.git
 cd DSITT
 ```
-
 ### 3. 安装依赖
-
 ```bash
 # 创建 conda 环境 (推荐)
 conda create -n dsitt python=3.12 -y
@@ -34,7 +31,6 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 # 安装其他依赖
 pip install pyyaml tensorboard scipy pillow
 ```
-
 ### 4. 准备数据集
 
 RGBT-Tiny 数据集包含三个压缩包：
