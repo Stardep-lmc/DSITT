@@ -19,9 +19,14 @@ import math
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Force unbuffered output for nohup/redirect logging
+if not sys.stdout.isatty():
+    import functools
+    print = functools.partial(print, flush=True)
+
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 
 from models.dsitt import build_dsitt
@@ -127,35 +132,67 @@ def train_one_epoch(
         # Forward + backward (with gradient accumulation)
         is_accum_step = ((batch_idx + 1) % accum_steps != 0) and (batch_idx + 1 < len(dataloader))
 
-        if use_amp and scaler is not None:
-            with autocast():
+        try:
+            if use_amp and scaler is not None:
+                with autocast('cuda'):
+                    if hasattr(model, 'dual_backbone'):
+                        loss_dict = model(frames_rgb, frames_ir, targets_device)
+                    else:
+                        loss_dict = model(frames_rgb, targets_device)
+                    loss = loss_dict['loss'] / accum_steps
+
+                # Check for NaN/Inf — let scaler handle it properly
+                if not torch.isfinite(loss):
+                    print(f"  [WARNING] NaN/Inf loss at iter {batch_idx + 1}, skipping batch")
+                    optimizer.zero_grad()
+                    # Reset model tracking state to avoid corrupted queries
+                    if hasattr(model, 'track_manager'):
+                        model.track_manager.reset()
+                    if hasattr(model, 'mtuq_manager'):
+                        model.mtuq_manager.reset()
+                    continue
+
+                scaler.scale(loss).backward()
+                if not is_accum_step:
+                    if max_norm > 0:
+                        scaler.unscale_(optimizer)
+                        # Check for inf gradients (scaler will skip step if found)
+                        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                        if not torch.isfinite(grad_norm):
+                            print(f"  [WARNING] Inf grad norm at iter {batch_idx + 1}, scaler will skip")
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
+            else:
                 if hasattr(model, 'dual_backbone'):
                     loss_dict = model(frames_rgb, frames_ir, targets_device)
                 else:
                     loss_dict = model(frames_rgb, targets_device)
                 loss = loss_dict['loss'] / accum_steps
 
-            scaler.scale(loss).backward()
-            if not is_accum_step:
-                if max_norm > 0:
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-        else:
-            if hasattr(model, 'dual_backbone'):
-                loss_dict = model(frames_rgb, frames_ir, targets_device)
-            else:
-                loss_dict = model(frames_rgb, targets_device)
-            loss = loss_dict['loss'] / accum_steps
+                if not torch.isfinite(loss):
+                    print(f"  [WARNING] NaN/Inf loss at iter {batch_idx + 1}, skipping batch")
+                    optimizer.zero_grad()
+                    if hasattr(model, 'track_manager'):
+                        model.track_manager.reset()
+                    if hasattr(model, 'mtuq_manager'):
+                        model.mtuq_manager.reset()
+                    continue
 
-            loss.backward()
-            if not is_accum_step:
-                if max_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-                optimizer.step()
-                optimizer.zero_grad()
+                loss.backward()
+                if not is_accum_step:
+                    if max_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                    optimizer.step()
+                    optimizer.zero_grad()
+        except (ValueError, RuntimeError) as e:
+            print(f"  [WARNING] Error at iter {batch_idx + 1}: {e}, skipping batch")
+            optimizer.zero_grad()
+            if hasattr(model, 'track_manager'):
+                model.track_manager.reset()
+            if hasattr(model, 'mtuq_manager'):
+                model.mtuq_manager.reset()
+            continue
 
         # Step LR scheduler on each optimizer step (not each micro-batch)
         if not is_accum_step and lr_scheduler is not None:
@@ -304,7 +341,7 @@ def main():
     lr_scheduler = build_lr_scheduler(optimizer, warmup_iters, lr_drop, iters_per_epoch)
 
     # AMP scaler
-    scaler = GradScaler() if args.amp else None
+    scaler = GradScaler('cuda') if args.amp else None
 
     # Resume from checkpoint
     start_epoch = 1

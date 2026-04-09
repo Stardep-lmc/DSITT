@@ -8,6 +8,7 @@ Implements:
 Reference: MOTR (Zeng et al., ECCV 2022)
 """
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -225,10 +226,11 @@ class TrajectoryAwareLabelAssignment:
                 self.giou_weight * cost_box
             )
 
-            # Hungarian matching
-            row_ind, col_ind = linear_sum_assignment(
-                cost_matrix.cpu().numpy()
-            )
+            # Hungarian matching — protect against NaN/Inf
+            cost_np = cost_matrix.detach().cpu().numpy()
+            if not np.isfinite(cost_np).all():
+                cost_np = np.nan_to_num(cost_np, nan=1e6, posinf=1e6, neginf=-1e6)
+            row_ind, col_ind = linear_sum_assignment(cost_np)
 
             for r, c in zip(row_ind, col_ind):
                 detect_matched_q.append(r + num_track_queries)  # offset by track queries

@@ -1,0 +1,235 @@
+nohup: ignoring input
+Device: cuda
+AMP: disabled
+
+=== Building Model ===
+Using DSITTv1 (baseline)
+Parameters: 40.1M (trainable: 40.1M)
+
+=== Building Dataset ===
+[RGBTTinyDataset] Loading annotations from data/rgbt_tiny/annotations/instances_00_train2017.json...
+[RGBTTinyDataset] Loaded 431201 annotations for 34111 images
+[RGBTTinyDataset] 85 sequences, 2000 clips, split=train, modality=ir, clip_length=2
+[RGBTTinyDataset] Loading annotations from data/rgbt_tiny/annotations/instances_00_test2017.json...
+[RGBTTinyDataset] Loaded 180251 annotations for 12590 images
+[RGBTTinyDataset] 30 sequences, 2000 clips, split=test, modality=ir, clip_length=2
+
+Resuming from outputs_base/checkpoints/checkpoint_0010.pth
+Resumed at epoch 11
+
+=== Training for 200 epochs (from epoch 11) ===
+LR: 0.0002, Warmup: 1000 iters, LR drop at epoch 100
+Gradient accumulation: 1 steps (effective batch = 1)
+Clip schedule: [{'epoch': 1, 'clip_length': 2}]
+
+Epoch 11/200 (clip_length=2, lr=2.00e-04)
+  Epoch [11] Iter [1/2000] Loss: 4.4479 (avg: 4.4479) cls: 0.0256 l1: 0.0314 giou: 0.9023 Time: 3.5s
+  Epoch [11] Iter [50/2000] Loss: 4.6466 (avg: 4.9189) cls: 0.0241 l1: 0.0369 giou: 0.9267 Time: 28.6s
+  Epoch [11] Iter [100/2000] Loss: 5.0159 (avg: 4.9379) cls: 0.0294 l1: 0.0347 giou: 0.9782 Time: 52.8s
+  Epoch [11] Iter [150/2000] Loss: 4.9509 (avg: 4.9388) cls: 0.0273 l1: 0.0413 giou: 0.9437 Time: 76.3s
+  Epoch [11] Iter [200/2000] Loss: 4.9911 (avg: 4.9956) cls: 0.0290 l1: 0.0415 giou: 0.9263 Time: 100.0s
+  Epoch [11] Iter [250/2000] Loss: 5.5235 (avg: 5.0587) cls: 0.0202 l1: 0.0550 giou: 1.0915 Time: 125.8s
+  Epoch [11] Iter [300/2000] Loss: 5.1928 (avg: 5.0532) cls: 0.0212 l1: 0.0449 giou: 1.0253 Time: 151.6s
+  Epoch [11] Iter [350/2000] Loss: 5.0517 (avg: 5.0445) cls: 0.0277 l1: 0.0424 giou: 0.9690 Time: 177.1s
+  Epoch [11] Iter [400/2000] Loss: 4.4042 (avg: 5.0254) cls: 0.0270 l1: 0.0249 giou: 0.8643 Time: 202.6s
+  Epoch [11] Iter [450/2000] Loss: 5.0826 (avg: 5.0059) cls: 0.0262 l1: 0.0452 giou: 0.9782 Time: 228.3s
+  Epoch [11] Iter [500/2000] Loss: 4.8049 (avg: 4.9999) cls: 0.0269 l1: 0.0373 giou: 0.9570 Time: 254.1s
+  Epoch [11] Iter [550/2000] Loss: 4.9093 (avg: 5.0030) cls: 0.0244 l1: 0.0437 giou: 1.0118 Time: 284.0s
+  Epoch [11] Iter [600/2000] Loss: 4.6190 (avg: 4.9999) cls: 0.0305 l1: 0.0370 giou: 0.8782 Time: 309.8s
+  Epoch [11] Iter [650/2000] Loss: 5.0961 (avg: 5.0053) cls: 0.0298 l1: 0.0521 giou: 0.9383 Time: 333.7s
+  Epoch [11] Iter [700/2000] Loss: 5.4841 (avg: 5.0052) cls: 0.0312 l1: 0.0477 giou: 1.0534 Time: 357.1s
+  Epoch [11] Iter [750/2000] Loss: 4.5922 (avg: 5.0045) cls: 0.0268 l1: 0.0400 giou: 0.8881 Time: 381.8s
+  Epoch [11] Iter [800/2000] Loss: 5.0199 (avg: 5.0087) cls: 0.0240 l1: 0.0542 giou: 0.9622 Time: 407.5s
+  Epoch [11] Iter [850/2000] Loss: 4.9730 (avg: 5.0114) cls: 0.0356 l1: 0.0353 giou: 0.9012 Time: 437.7s
+  Epoch [11] Iter [900/2000] Loss: 5.9959 (avg: 5.0175) cls: 0.0270 l1: 0.0607 giou: 1.2040 Time: 463.4s
+  Epoch [11] Iter [950/2000] Loss: 4.7519 (avg: 5.0168) cls: 0.0346 l1: 0.0370 giou: 0.9249 Time: 489.4s
+  Epoch [11] Iter [1000/2000] Loss: 4.9108 (avg: 5.0144) cls: 0.0341 l1: 0.0337 giou: 0.8263 Time: 519.1s
+  Epoch [11] Iter [1050/2000] Loss: 5.0550 (avg: 5.0122) cls: 0.0316 l1: 0.0349 giou: 0.9395 Time: 544.7s
+  Epoch [11] Iter [1100/2000] Loss: 4.4247 (avg: 5.0043) cls: 0.0332 l1: 0.0234 giou: 0.8281 Time: 574.5s
+  Epoch [11] Iter [1150/2000] Loss: 5.0146 (avg: 5.0042) cls: 0.0287 l1: 0.0495 giou: 0.9666 Time: 602.3s
+  Epoch [11] Iter [1200/2000] Loss: 4.8698 (avg: 5.0038) cls: 0.0308 l1: 0.0221 giou: 0.9163 Time: 629.2s
+  Epoch [11] Iter [1250/2000] Loss: 5.5152 (avg: 5.0146) cls: 0.0288 l1: 0.0494 giou: 1.0654 Time: 657.7s
+  Epoch [11] Iter [1300/2000] Loss: 4.8158 (avg: 5.0157) cls: 0.0306 l1: 0.0364 giou: 0.9628 Time: 681.0s
+  Epoch [11] Iter [1350/2000] Loss: 4.8109 (avg: 5.0136) cls: 0.0305 l1: 0.0387 giou: 0.9175 Time: 706.4s
+  Epoch [11] Iter [1400/2000] Loss: 5.1252 (avg: 5.0161) cls: 0.0345 l1: 0.0433 giou: 0.9661 Time: 731.7s
+  Epoch [11] Iter [1450/2000] Loss: 4.9664 (avg: 5.0144) cls: 0.0350 l1: 0.0407 giou: 1.0069 Time: 757.3s
+  Epoch [11] Iter [1500/2000] Loss: 5.3713 (avg: 5.0138) cls: 0.0229 l1: 0.0638 giou: 1.1307 Time: 782.6s
+  Epoch [11] Iter [1550/2000] Loss: 5.5442 (avg: 5.0154) cls: 0.0341 l1: 0.0421 giou: 1.0475 Time: 807.8s
+  Epoch [11] Iter [1600/2000] Loss: 5.1147 (avg: 5.0140) cls: 0.0338 l1: 0.0392 giou: 1.0043 Time: 833.6s
+  Epoch [11] Iter [1650/2000] Loss: 4.5766 (avg: 5.0116) cls: 0.0304 l1: 0.0297 giou: 0.8950 Time: 859.3s
+  Epoch [11] Iter [1700/2000] Loss: 5.2226 (avg: 5.0126) cls: 0.0348 l1: 0.0429 giou: 1.0273 Time: 887.1s
+  Epoch [11] Iter [1750/2000] Loss: 5.0943 (avg: 5.0100) cls: 0.0278 l1: 0.0457 giou: 0.9639 Time: 913.3s
+  Epoch [11] Iter [1800/2000] Loss: 5.5856 (avg: 5.0155) cls: 0.0226 l1: 0.0556 giou: 1.0933 Time: 940.2s
+  Epoch [11] Iter [1850/2000] Loss: 5.4978 (avg: 5.0334) cls: 0.0307 l1: 0.0647 giou: 1.0037 Time: 964.4s
+  Epoch [11] Iter [1900/2000] Loss: 5.4980 (avg: 5.0399) cls: 0.0288 l1: 0.0460 giou: 1.0923 Time: 989.8s
+  Epoch [11] Iter [1950/2000] Loss: 5.4600 (avg: 5.0417) cls: 0.0285 l1: 0.0420 giou: 1.0475 Time: 1015.5s
+  Epoch [11] Iter [2000/2000] Loss: 6.0741 (avg: 5.0491) cls: 0.0280 l1: 0.0584 giou: 1.2481 Time: 1041.1s
+  Epoch [11] Complete. Avg Loss: 5.0491
+Epoch 12/200 (clip_length=2, lr=2.00e-04)
+  Epoch [12] Iter [1/2000] Loss: 5.3126 (avg: 5.3126) cls: 0.0280 l1: 0.0461 giou: 1.0136 Time: 0.7s
+  Epoch [12] Iter [50/2000] Loss: 5.1174 (avg: 4.9931) cls: 0.0309 l1: 0.0447 giou: 0.9718 Time: 25.9s
+  Epoch [12] Iter [100/2000] Loss: 5.2999 (avg: 5.0174) cls: 0.0319 l1: 0.0420 giou: 1.0169 Time: 51.6s
+  Epoch [12] Iter [150/2000] Loss: 5.0162 (avg: 5.0423) cls: 0.0263 l1: 0.0333 giou: 0.9943 Time: 77.4s
+  Epoch [12] Iter [200/2000] Loss: 4.9882 (avg: 5.1038) cls: 0.0304 l1: 0.0460 giou: 0.9602 Time: 103.7s
+  Epoch [12] Iter [250/2000] Loss: 4.9003 (avg: 5.1049) cls: 0.0232 l1: 0.0447 giou: 0.9254 Time: 128.5s
+  Epoch [12] Iter [300/2000] Loss: 4.9441 (avg: 5.0821) cls: 0.0283 l1: 0.0412 giou: 0.9678 Time: 151.8s
+  Epoch [12] Iter [350/2000] Loss: 6.5106 (avg: 5.0840) cls: 0.0226 l1: 0.0816 giou: 1.3240 Time: 175.2s
+  Epoch [12] Iter [400/2000] Loss: 5.0041 (avg: 5.1042) cls: 0.0191 l1: 0.0458 giou: 0.9939 Time: 200.9s
+  Epoch [12] Iter [450/2000] Loss: 4.7896 (avg: 5.0852) cls: 0.0252 l1: 0.0435 giou: 0.9714 Time: 226.7s
+  Epoch [12] Iter [500/2000] Loss: 4.6227 (avg: 5.0514) cls: 0.0318 l1: 0.0321 giou: 0.9165 Time: 252.4s
+  Epoch [12] Iter [550/2000] Loss: 4.9485 (avg: 5.0341) cls: 0.0317 l1: 0.0468 giou: 0.9647 Time: 277.9s
+  Epoch [12] Iter [600/2000] Loss: 4.7464 (avg: 5.0212) cls: 0.0290 l1: 0.0339 giou: 0.9831 Time: 303.6s
+  Epoch [12] Iter [650/2000] Loss: 5.3706 (avg: 5.0250) cls: 0.0322 l1: 0.0534 giou: 1.0278 Time: 329.4s
+  Epoch [12] Iter [700/2000] Loss: 5.0601 (avg: 5.0265) cls: 0.0354 l1: 0.0384 giou: 0.9834 Time: 355.2s
+  Epoch [12] Iter [750/2000] Loss: 5.1169 (avg: 5.0435) cls: 0.0368 l1: 0.0440 giou: 0.9598 Time: 380.9s
+  Epoch [12] Iter [800/2000] Loss: 4.7839 (avg: 5.0547) cls: 0.0389 l1: 0.0311 giou: 0.8601 Time: 404.6s
+  Epoch [12] Iter [850/2000] Loss: 5.3705 (avg: 5.0662) cls: 0.0377 l1: 0.0402 giou: 1.0479 Time: 427.9s
+  Epoch [12] Iter [900/2000] Loss: 4.8195 (avg: 5.0635) cls: 0.0324 l1: 0.0277 giou: 0.8826 Time: 452.9s
+  Epoch [12] Iter [950/2000] Loss: 5.1156 (avg: 5.0569) cls: 0.0339 l1: 0.0248 giou: 1.0037 Time: 478.6s
+  Epoch [12] Iter [1000/2000] Loss: 4.7355 (avg: 5.0508) cls: 0.0327 l1: 0.0257 giou: 0.8720 Time: 504.4s
+  Epoch [12] Iter [1050/2000] Loss: 5.0094 (avg: 5.0457) cls: 0.0346 l1: 0.0363 giou: 0.9677 Time: 530.0s
+  Epoch [12] Iter [1100/2000] Loss: 5.3636 (avg: 5.0431) cls: 0.0294 l1: 0.0363 giou: 1.0318 Time: 555.6s
+  Epoch [12] Iter [1150/2000] Loss: 5.0844 (avg: 5.0443) cls: 0.0322 l1: 0.0352 giou: 0.9569 Time: 581.0s
+  Epoch [12] Iter [1200/2000] Loss: 4.9736 (avg: 5.0387) cls: 0.0355 l1: 0.0327 giou: 0.9631 Time: 606.6s
+  Epoch [12] Iter [1250/2000] Loss: 4.8118 (avg: 5.0362) cls: 0.0261 l1: 0.0394 giou: 0.9309 Time: 632.2s
+  Epoch [12] Iter [1300/2000] Loss: 4.5120 (avg: 5.0348) cls: 0.0356 l1: 0.0270 giou: 0.7867 Time: 657.1s
+  Epoch [12] Iter [1350/2000] Loss: 5.1585 (avg: 5.0341) cls: 0.0334 l1: 0.0421 giou: 0.9495 Time: 680.5s
+  Epoch [12] Iter [1400/2000] Loss: 5.0242 (avg: 5.0315) cls: 0.0411 l1: 0.0332 giou: 0.9341 Time: 704.2s
+  Epoch [12] Iter [1450/2000] Loss: 4.9995 (avg: 5.0280) cls: 0.0284 l1: 0.0367 giou: 0.9723 Time: 730.0s
+  Epoch [12] Iter [1500/2000] Loss: 4.9872 (avg: 5.0239) cls: 0.0291 l1: 0.0385 giou: 0.9679 Time: 755.7s
+  Epoch [12] Iter [1550/2000] Loss: 4.6837 (avg: 5.0205) cls: 0.0283 l1: 0.0399 giou: 0.9279 Time: 781.4s
+  Epoch [12] Iter [1600/2000] Loss: 5.2076 (avg: 5.0147) cls: 0.0280 l1: 0.0471 giou: 1.0007 Time: 806.9s
+  Epoch [12] Iter [1650/2000] Loss: 4.6130 (avg: 5.0127) cls: 0.0293 l1: 0.0315 giou: 0.8657 Time: 832.6s
+  Epoch [12] Iter [1700/2000] Loss: 4.6606 (avg: 5.0120) cls: 0.0301 l1: 0.0309 giou: 0.8836 Time: 858.2s
+  Epoch [12] Iter [1750/2000] Loss: 5.0974 (avg: 5.0062) cls: 0.0347 l1: 0.0320 giou: 0.8929 Time: 884.4s
+  Epoch [12] Iter [1800/2000] Loss: 4.5068 (avg: 5.0013) cls: 0.0309 l1: 0.0291 giou: 0.8153 Time: 909.8s
+  Epoch [12] Iter [1850/2000] Loss: 4.8563 (avg: 4.9954) cls: 0.0285 l1: 0.0313 giou: 0.8657 Time: 933.4s
+  Epoch [12] Iter [1900/2000] Loss: 4.6110 (avg: 4.9918) cls: 0.0301 l1: 0.0242 giou: 0.8516 Time: 956.9s
+  Epoch [12] Iter [1950/2000] Loss: 5.0794 (avg: 4.9927) cls: 0.0277 l1: 0.0340 giou: 0.9809 Time: 982.6s
+  Epoch [12] Iter [2000/2000] Loss: 5.0108 (avg: 4.9889) cls: 0.0322 l1: 0.0279 giou: 0.9877 Time: 1008.4s
+  Epoch [12] Complete. Avg Loss: 4.9889
+Epoch 13/200 (clip_length=2, lr=2.00e-04)
+  Epoch [13] Iter [1/2000] Loss: 4.6519 (avg: 4.6519) cls: 0.0320 l1: 0.0289 giou: 0.8454 Time: 0.7s
+  Epoch [13] Iter [50/2000] Loss: 4.5668 (avg: 4.7813) cls: 0.0343 l1: 0.0216 giou: 0.7725 Time: 26.1s
+  Epoch [13] Iter [100/2000] Loss: 4.7507 (avg: 4.7962) cls: 0.0339 l1: 0.0282 giou: 0.8223 Time: 51.6s
+  Epoch [13] Iter [150/2000] Loss: 5.1191 (avg: 4.7610) cls: 0.0240 l1: 0.0471 giou: 1.0355 Time: 77.3s
+  Epoch [13] Iter [200/2000] Loss: 5.4948 (avg: 4.8715) cls: 0.0228 l1: 0.0545 giou: 1.0197 Time: 103.0s
+  Epoch [13] Iter [250/2000] Loss: 5.6523 (avg: 4.9198) cls: 0.0223 l1: 0.0577 giou: 1.1243 Time: 129.0s
+  Epoch [13] Iter [300/2000] Loss: 4.7951 (avg: 4.9671) cls: 0.0345 l1: 0.0320 giou: 0.8490 Time: 154.7s
+  Epoch [13] Iter [350/2000] Loss: 4.8954 (avg: 5.0487) cls: 0.0256 l1: 0.0602 giou: 0.9067 Time: 178.2s
+  Epoch [13] Iter [400/2000] Loss: 5.2998 (avg: 5.0497) cls: 0.0286 l1: 0.0498 giou: 1.0856 Time: 201.5s
+  Epoch [13] Iter [450/2000] Loss: 5.0203 (avg: 5.0295) cls: 0.0337 l1: 0.0440 giou: 0.8929 Time: 226.8s
+  Epoch [13] Iter [500/2000] Loss: 5.0387 (avg: 5.0242) cls: 0.0356 l1: 0.0349 giou: 1.0074 Time: 252.4s
+  Epoch [13] Iter [550/2000] Loss: 5.0263 (avg: 5.0114) cls: 0.0336 l1: 0.0432 giou: 0.9544 Time: 277.9s
+  Epoch [13] Iter [600/2000] Loss: 5.0420 (avg: 5.0092) cls: 0.0316 l1: 0.0400 giou: 0.9501 Time: 303.5s
+  Epoch [13] Iter [650/2000] Loss: 4.9445 (avg: 5.0087) cls: 0.0326 l1: 0.0270 giou: 0.9334 Time: 329.1s
+  Epoch [13] Iter [700/2000] Loss: 4.7328 (avg: 5.0007) cls: 0.0271 l1: 0.0267 giou: 0.9195 Time: 357.2s
+  Epoch [13] Iter [750/2000] Loss: 4.6524 (avg: 4.9903) cls: 0.0283 l1: 0.0272 giou: 0.8488 Time: 384.0s
+  Epoch [13] Iter [800/2000] Loss: 4.5763 (avg: 4.9778) cls: 0.0265 l1: 0.0274 giou: 0.9030 Time: 409.6s
+  Epoch [13] Iter [850/2000] Loss: 5.2532 (avg: 4.9754) cls: 0.0279 l1: 0.0306 giou: 1.0219 Time: 434.4s
+  Epoch [13] Iter [900/2000] Loss: 4.7338 (avg: 4.9712) cls: 0.0279 l1: 0.0265 giou: 0.9451 Time: 458.1s
+  Epoch [13] Iter [950/2000] Loss: 5.1498 (avg: 4.9808) cls: 0.0347 l1: 0.0468 giou: 1.0122 Time: 481.7s
+  Epoch [13] Iter [1000/2000] Loss: 5.1761 (avg: 4.9828) cls: 0.0253 l1: 0.0443 giou: 0.9983 Time: 507.2s
+  Epoch [13] Iter [1050/2000] Loss: 5.4075 (avg: 4.9875) cls: 0.0252 l1: 0.0505 giou: 1.0655 Time: 536.9s
+  Epoch [13] Iter [1100/2000] Loss: 5.1839 (avg: 4.9854) cls: 0.0303 l1: 0.0428 giou: 1.0297 Time: 571.9s
+  Epoch [13] Iter [1150/2000] Loss: 5.2640 (avg: 4.9871) cls: 0.0247 l1: 0.0432 giou: 1.0765 Time: 605.7s
+  Epoch [13] Iter [1200/2000] Loss: 4.9880 (avg: 4.9910) cls: 0.0319 l1: 0.0310 giou: 0.9569 Time: 639.1s
+  Epoch [13] Iter [1250/2000] Loss: 4.5127 (avg: 4.9939) cls: 0.0312 l1: 0.0291 giou: 0.8160 Time: 673.0s
+  Epoch [13] Iter [1300/2000] Loss: 5.4168 (avg: 4.9942) cls: 0.0243 l1: 0.0480 giou: 1.0993 Time: 707.6s
+  Epoch [13] Iter [1350/2000] Loss: 5.3332 (avg: 4.9961) cls: 0.0297 l1: 0.0507 giou: 1.0159 Time: 742.4s
+  Epoch [13] Iter [1400/2000] Loss: 5.0503 (avg: 4.9927) cls: 0.0285 l1: 0.0294 giou: 0.9161 Time: 777.2s
+  Epoch [13] Iter [1450/2000] Loss: 5.2620 (avg: 4.9935) cls: 0.0257 l1: 0.0416 giou: 1.0374 Time: 811.2s
+  Epoch [13] Iter [1500/2000] Loss: 5.0043 (avg: 4.9932) cls: 0.0329 l1: 0.0355 giou: 0.9635 Time: 846.1s
+  Epoch [13] Iter [1550/2000] Loss: 5.2672 (avg: 4.9923) cls: 0.0250 l1: 0.0444 giou: 1.0107 Time: 878.2s
+  Epoch [13] Iter [1600/2000] Loss: 4.9716 (avg: 4.9901) cls: 0.0281 l1: 0.0382 giou: 0.9442 Time: 909.8s
+  Epoch [13] Iter [1650/2000] Loss: 4.9933 (avg: 4.9877) cls: 0.0296 l1: 0.0356 giou: 0.9734 Time: 944.3s
+  Epoch [13] Iter [1700/2000] Loss: 4.8552 (avg: 4.9831) cls: 0.0315 l1: 0.0223 giou: 0.8958 Time: 978.2s
+  Epoch [13] Iter [1750/2000] Loss: 4.9509 (avg: 4.9810) cls: 0.0305 l1: 0.0358 giou: 0.9148 Time: 1012.9s
+  Epoch [13] Iter [1800/2000] Loss: 5.4217 (avg: 4.9809) cls: 0.0310 l1: 0.0355 giou: 1.0612 Time: 1047.4s
+  Epoch [13] Iter [1850/2000] Loss: 4.9400 (avg: 4.9822) cls: 0.0279 l1: 0.0370 giou: 0.9075 Time: 1081.2s
+  Epoch [13] Iter [1900/2000] Loss: 5.7040 (avg: 4.9914) cls: 0.0193 l1: 0.0582 giou: 1.1900 Time: 1115.0s
+  Epoch [13] Iter [1950/2000] Loss: 5.3207 (avg: 5.0076) cls: 0.0407 l1: 0.0503 giou: 0.9896 Time: 1148.5s
+  Epoch [13] Iter [2000/2000] Loss: 4.8141 (avg: 5.0145) cls: 0.0263 l1: 0.0379 giou: 0.8230 Time: 1182.6s
+  Epoch [13] Complete. Avg Loss: 5.0145
+Epoch 14/200 (clip_length=2, lr=2.00e-04)
+  Epoch [14] Iter [1/2000] Loss: 5.8847 (avg: 5.8847) cls: 0.0229 l1: 0.0731 giou: 1.1481 Time: 0.9s
+  Epoch [14] Iter [50/2000] Loss: 5.3709 (avg: 5.2915) cls: 0.0317 l1: 0.0427 giou: 0.9594 Time: 31.3s
+  Epoch [14] Iter [100/2000] Loss: 5.1859 (avg: 5.1286) cls: 0.0279 l1: 0.0434 giou: 0.9563 Time: 56.7s
+  Epoch [14] Iter [150/2000] Loss: 5.0738 (avg: 5.0904) cls: 0.0249 l1: 0.0347 giou: 0.9336 Time: 80.1s
+  Epoch [14] Iter [200/2000] Loss: 4.8218 (avg: 5.1135) cls: 0.0298 l1: 0.0347 giou: 0.8604 Time: 102.7s
+  Epoch [14] Iter [250/2000] Loss: 5.1026 (avg: 5.1273) cls: 0.0235 l1: 0.0412 giou: 0.9194 Time: 126.9s
+  Epoch [14] Iter [300/2000] Loss: 5.2412 (avg: 5.1352) cls: 0.0324 l1: 0.0394 giou: 1.0222 Time: 152.1s
+  Epoch [14] Iter [350/2000] Loss: 5.2507 (avg: 5.1440) cls: 0.0261 l1: 0.0501 giou: 0.9672 Time: 177.6s
+  Epoch [14] Iter [400/2000] Loss: 4.8354 (avg: 5.1309) cls: 0.0288 l1: 0.0361 giou: 0.8803 Time: 203.6s
+  Epoch [14] Iter [450/2000] Loss: 4.7290 (avg: 5.1172) cls: 0.0312 l1: 0.0302 giou: 0.8465 Time: 229.2s
+  Epoch [14] Iter [500/2000] Loss: 5.1712 (avg: 5.1000) cls: 0.0253 l1: 0.0539 giou: 0.9700 Time: 254.7s
+  Epoch [14] Iter [550/2000] Loss: 5.1443 (avg: 5.0821) cls: 0.0237 l1: 0.0389 giou: 0.9765 Time: 280.1s
+  Epoch [14] Iter [600/2000] Loss: 4.9074 (avg: 5.0765) cls: 0.0322 l1: 0.0324 giou: 0.8770 Time: 305.0s
+  Epoch [14] Iter [650/2000] Loss: 5.0736 (avg: 5.0664) cls: 0.0302 l1: 0.0277 giou: 0.9198 Time: 327.9s
+  Epoch [14] Iter [700/2000] Loss: 5.0533 (avg: 5.0679) cls: 0.0259 l1: 0.0351 giou: 0.9528 Time: 350.9s
+  Epoch [14] Iter [750/2000] Loss: 4.9308 (avg: 5.0728) cls: 0.0284 l1: 0.0319 giou: 0.9210 Time: 376.2s
+  Epoch [14] Iter [800/2000] Loss: 4.8432 (avg: 5.0691) cls: 0.0324 l1: 0.0263 giou: 0.9504 Time: 401.7s
+  Epoch [14] Iter [850/2000] Loss: 5.2954 (avg: 5.0782) cls: 0.0274 l1: 0.0393 giou: 0.9716 Time: 427.1s
+  Epoch [14] Iter [900/2000] Loss: 4.7881 (avg: 5.0796) cls: 0.0275 l1: 0.0298 giou: 0.9009 Time: 457.2s
+  Epoch [14] Iter [950/2000] Loss: 5.2719 (avg: 5.0787) cls: 0.0366 l1: 0.0486 giou: 1.0248 Time: 485.5s
+  Epoch [14] Iter [1000/2000] Loss: 4.8337 (avg: 5.0754) cls: 0.0302 l1: 0.0280 giou: 0.8797 Time: 514.1s
+  Epoch [14] Iter [1050/2000] Loss: 4.6005 (avg: 5.0758) cls: 0.0312 l1: 0.0293 giou: 0.8114 Time: 544.6s
+  Epoch [14] Iter [1100/2000] Loss: 5.1764 (avg: 5.0721) cls: 0.0350 l1: 0.0463 giou: 0.9421 Time: 573.4s
+  Epoch [14] Iter [1150/2000] Loss: 4.9000 (avg: 5.0654) cls: 0.0312 l1: 0.0347 giou: 0.8954 Time: 598.7s
+  Epoch [14] Iter [1200/2000] Loss: 4.7892 (avg: 5.0611) cls: 0.0283 l1: 0.0317 giou: 0.8659 Time: 621.6s
+  Epoch [14] Iter [1250/2000] Loss: 4.8818 (avg: 5.0591) cls: 0.0271 l1: 0.0317 giou: 0.9131 Time: 650.8s
+  Epoch [14] Iter [1300/2000] Loss: 4.8664 (avg: 5.0599) cls: 0.0269 l1: 0.0350 giou: 0.9281 Time: 679.1s
+  Epoch [14] Iter [1350/2000] Loss: 4.9688 (avg: 5.0610) cls: 0.0281 l1: 0.0376 giou: 0.8892 Time: 707.8s
+  Epoch [14] Iter [1400/2000] Loss: 4.7966 (avg: 5.0560) cls: 0.0296 l1: 0.0334 giou: 0.8775 Time: 737.5s
+  Epoch [14] Iter [1450/2000] Loss: 4.3881 (avg: 5.0492) cls: 0.0335 l1: 0.0208 giou: 0.7586 Time: 766.5s
+  Epoch [14] Iter [1500/2000] Loss: 5.4193 (avg: 5.0417) cls: 0.0313 l1: 0.0285 giou: 1.0822 Time: 794.8s
+  Epoch [14] Iter [1550/2000] Loss: 4.8523 (avg: 5.0396) cls: 0.0308 l1: 0.0225 giou: 0.8680 Time: 823.1s
+  Epoch [14] Iter [1600/2000] Loss: 4.9790 (avg: 5.0364) cls: 0.0322 l1: 0.0242 giou: 0.9355 Time: 851.6s
+  Epoch [14] Iter [1650/2000] Loss: 5.0904 (avg: 5.0335) cls: 0.0295 l1: 0.0357 giou: 0.9570 Time: 880.8s
+  Epoch [14] Iter [1700/2000] Loss: 4.9121 (avg: 5.0366) cls: 0.0308 l1: 0.0425 giou: 0.8993 Time: 906.1s
+  Epoch [14] Iter [1750/2000] Loss: 4.7355 (avg: 5.0323) cls: 0.0330 l1: 0.0244 giou: 0.8583 Time: 930.9s
+  Epoch [14] Iter [1800/2000] Loss: 5.2454 (avg: 5.0288) cls: 0.0293 l1: 0.0353 giou: 0.9815 Time: 953.7s
+  Epoch [14] Iter [1850/2000] Loss: 5.0736 (avg: 5.0273) cls: 0.0292 l1: 0.0318 giou: 0.9717 Time: 976.6s
+  Epoch [14] Iter [1900/2000] Loss: 5.0136 (avg: 5.0336) cls: 0.0285 l1: 0.0403 giou: 0.9532 Time: 1002.0s
+  Epoch [14] Iter [1950/2000] Loss: 5.0013 (avg: 5.0340) cls: 0.0282 l1: 0.0315 giou: 0.9604 Time: 1028.0s
+  Epoch [14] Iter [2000/2000] Loss: 4.6484 (avg: 5.0299) cls: 0.0304 l1: 0.0291 giou: 0.8920 Time: 1053.6s
+  Epoch [14] Complete. Avg Loss: 5.0299
+Epoch 15/200 (clip_length=2, lr=2.00e-04)
+  Epoch [15] Iter [1/2000] Loss: 4.9972 (avg: 4.9972) cls: 0.0300 l1: 0.0295 giou: 0.8990 Time: 0.8s
+  Epoch [15] Iter [50/2000] Loss: 5.1246 (avg: 4.9734) cls: 0.0269 l1: 0.0435 giou: 0.9804 Time: 25.9s
+  Epoch [15] Iter [100/2000] Loss: 5.1937 (avg: 5.0305) cls: 0.0282 l1: 0.0476 giou: 1.0159 Time: 51.3s
+  Epoch [15] Iter [150/2000] Loss: 5.2214 (avg: 5.0741) cls: 0.0280 l1: 0.0544 giou: 1.0141 Time: 76.8s
+  Epoch [15] Iter [200/2000] Loss: 5.3335 (avg: 5.1071) cls: 0.0351 l1: 0.0544 giou: 1.0176 Time: 101.8s
+  Epoch [15] Iter [250/2000] Loss: 5.0027 (avg: 5.0878) cls: 0.0241 l1: 0.0400 giou: 1.0314 Time: 124.8s
+  Epoch [15] Iter [300/2000] Loss: 4.7855 (avg: 5.0634) cls: 0.0295 l1: 0.0354 giou: 0.9468 Time: 147.5s
+  Epoch [15] Iter [350/2000] Loss: 5.3678 (avg: 5.0572) cls: 0.0322 l1: 0.0427 giou: 1.0408 Time: 172.7s
+  Epoch [15] Iter [400/2000] Loss: 6.7812 (avg: 5.1028) cls: 0.0260 l1: 0.0947 giou: 1.3562 Time: 198.3s
+  Epoch [15] Iter [450/2000] Loss: 5.0714 (avg: 5.1495) cls: 0.0354 l1: 0.0347 giou: 0.9480 Time: 223.8s
+  Epoch [15] Iter [500/2000] Loss: 5.0172 (avg: 5.1594) cls: 0.0329 l1: 0.0386 giou: 0.9011 Time: 249.4s
+  Epoch [15] Iter [550/2000] Loss: 4.8904 (avg: 5.1528) cls: 0.0324 l1: 0.0325 giou: 0.9128 Time: 274.8s
+  Epoch [15] Iter [600/2000] Loss: 5.5496 (avg: 5.1488) cls: 0.0249 l1: 0.0675 giou: 1.0549 Time: 300.5s
+  Epoch [15] Iter [650/2000] Loss: 6.0955 (avg: 5.1440) cls: 0.0321 l1: 0.0738 giou: 1.1981 Time: 325.4s
+  Epoch [15] Iter [700/2000] Loss: 4.6479 (avg: 5.1419) cls: 0.0301 l1: 0.0414 giou: 0.8575 Time: 350.3s
+  Epoch [15] Iter [750/2000] Loss: 4.8088 (avg: 5.1358) cls: 0.0337 l1: 0.0468 giou: 0.9467 Time: 373.6s
+  Epoch [15] Iter [800/2000] Loss: 4.7782 (avg: 5.1210) cls: 0.0283 l1: 0.0368 giou: 0.8221 Time: 396.5s
+  Epoch [15] Iter [850/2000] Loss: 5.0202 (avg: 5.1089) cls: 0.0287 l1: 0.0388 giou: 0.9607 Time: 421.8s
+  Epoch [15] Iter [900/2000] Loss: 4.7137 (avg: 5.1033) cls: 0.0364 l1: 0.0393 giou: 0.8917 Time: 447.5s
+  Epoch [15] Iter [950/2000] Loss: 4.6910 (avg: 5.1023) cls: 0.0292 l1: 0.0411 giou: 0.8912 Time: 472.8s
+  Epoch [15] Iter [1000/2000] Loss: 5.4282 (avg: 5.1216) cls: 0.0352 l1: 0.0553 giou: 1.0013 Time: 498.4s
+  Epoch [15] Iter [1050/2000] Loss: 4.9330 (avg: 5.1184) cls: 0.0290 l1: 0.0442 giou: 0.9676 Time: 523.9s
+  Epoch [15] Iter [1100/2000] Loss: 4.9719 (avg: 5.1211) cls: 0.0318 l1: 0.0396 giou: 0.9473 Time: 549.4s
+  Epoch [15] Iter [1150/2000] Loss: 4.9979 (avg: 5.1196) cls: 0.0357 l1: 0.0409 giou: 0.9540 Time: 574.8s
+  Epoch [15] Iter [1200/2000] Loss: 5.1038 (avg: 5.1119) cls: 0.0345 l1: 0.0385 giou: 1.0309 Time: 600.0s
+  Epoch [15] Iter [1250/2000] Loss: 4.6294 (avg: 5.1017) cls: 0.0337 l1: 0.0273 giou: 0.8757 Time: 623.0s
+  Epoch [15] Iter [1300/2000] Loss: 5.0830 (avg: 5.0949) cls: 0.0416 l1: 0.0439 giou: 0.9396 Time: 646.2s
+  Epoch [15] Iter [1350/2000] Loss: 5.1333 (avg: 5.0875) cls: 0.0323 l1: 0.0389 giou: 1.0305 Time: 671.3s
+  Epoch [15] Iter [1400/2000] Loss: 4.8968 (avg: 5.0807) cls: 0.0340 l1: 0.0388 giou: 0.9161 Time: 696.5s
+  Epoch [15] Iter [1450/2000] Loss: 4.6940 (avg: 5.0765) cls: 0.0326 l1: 0.0326 giou: 0.9268 Time: 722.0s
+  Epoch [15] Iter [1500/2000] Loss: 4.6382 (avg: 5.0711) cls: 0.0298 l1: 0.0298 giou: 0.8837 Time: 747.3s
+  Epoch [15] Iter [1550/2000] Loss: 4.9042 (avg: 5.0624) cls: 0.0308 l1: 0.0397 giou: 0.9597 Time: 772.5s
+  Epoch [15] Iter [1600/2000] Loss: 4.6651 (avg: 5.0574) cls: 0.0275 l1: 0.0334 giou: 0.9470 Time: 798.0s
+  Epoch [15] Iter [1650/2000] Loss: 4.9649 (avg: 5.0518) cls: 0.0335 l1: 0.0399 giou: 0.9664 Time: 823.6s
+  Epoch [15] Iter [1700/2000] Loss: 5.6574 (avg: 5.0536) cls: 0.0316 l1: 0.0473 giou: 1.1832 Time: 849.3s
+  Epoch [15] Iter [1750/2000] Loss: 4.7476 (avg: 5.0529) cls: 0.0288 l1: 0.0310 giou: 0.9124 Time: 873.1s
+  Epoch [15] Iter [1800/2000] Loss: 4.6816 (avg: 5.0473) cls: 0.0302 l1: 0.0284 giou: 0.8493 Time: 896.2s
+  Epoch [15] Iter [1850/2000] Loss: 5.1351 (avg: 5.0414) cls: 0.0296 l1: 0.0398 giou: 0.9822 Time: 920.6s

@@ -194,11 +194,11 @@ DSITT/
 
 | # | 优先级 | 任务 | 依赖 | 预计工作量 | 状态 |
 |---|--------|------|------|-----------|------|
-| 1 | 🔴P0 | **数据准备**：下载 RGBT-Tiny 数据集，验证 COCO 格式标注，确认 train/test 划分 | 无 | 0.5 天 | 待开始 |
-| 2 | 🔴P0 | **端到端冒烟测试**：用真实数据跑 5 epoch，确认训练循环无报错 | #1 | 0.5 天 | 待开始 |
-| 3 | 🔴P0 | **v1 基线训练**：dsitt_base.yaml，200 epoch，记录 HOTA/MOTA/IDF1 | #2 | 2 天 | 待开始 |
-| 4 | 🔴P0 | **v1+NWD 训练**：dsitt_nwd.yaml，200 epoch，对比 GIoU vs NWD | #3 | 2 天 | 待开始 |
-| 5 | 🔴P0 | **v2 完整模型训练**：dsitt_full.yaml，200 epoch | #2 | 3 天 | 待开始 |
+| 1 | 🔴P0 | **数据准备**：下载 RGBT-Tiny 数据集，验证 COCO 格式标注，确认 train/test 划分 | 无 | 0.5 天 | ✅ 已完成 |
+| 2 | 🔴P0 | **端到端冒烟测试**：用真实数据跑 5 epoch，确认训练循环无报错 | #1 | 0.5 天 | ✅ 已完成 |
+| 3 | 🔴P0 | **v1 基线训练**：dsitt_base.yaml，200 epoch，记录 HOTA/MOTA/IDF1 | #2 | 3 天 | 🔄 训练中 (fp32, epoch 11+/200) |
+| 4 | 🔴P0 | **v1+NWD 训练**：dsitt_nwd.yaml，200 epoch，对比 GIoU vs NWD | #3 | 3 天 | 待开始（v1 完成后启动） |
+| 5 | 🔴P0 | **v2 完整模型训练**：dsitt_full.yaml，200 epoch | #2 | 3 天 | ⏸ 暂停 (epoch 25, 有 checkpoint) |
 | 6 | 🟡P1 | **消融实验**：逐一关闭 NWD/CMC/SAS/Motion，记录指标变化 | #5 | 3 天 | 待开始 |
 | 7 | 🟡P1 | **填充论文实验数据**：将训练结果填入 paper/dsitt_paper.tex 的 TODO 表格 | #3-#6 | 1 天 | 待开始 |
 | 8 | 🟡P1 | **生成论文图表**：5 张 FIGNEEDED 图（架构图、可视化对比、消融曲线等） | #5-#6 | 2 天 | 待开始 |
@@ -220,6 +220,42 @@ DSITT/
 | Abl-2 | dsitt_full.yaml (no SAS) | v2 | 替换 SAS 为标准 deform attn | Table 2 |
 | Abl-3 | dsitt_full.yaml (no Motion) | v2 | 禁用 motion_updater | Table 2 |
 | Abl-4 | dsitt_nwd.yaml (GIoU) | v1 | box_loss_type=giou | Table 2 |
+
+### 8.4 训练经验教训（重要！）
+
+| # | 经验 | 详情 |
+|---|------|------|
+| 1 | **v1 + GIoU + AMP = NaN** | v1 基线用 GIoU 损失 + AMP fp16 在 epoch 40+ 出现严重 NaN（>50% batch）。原因是可变形注意力在 fp16 下数值不稳定。降低 LR 无效。**解决方案：关闭 AMP 用 fp32 训练** |
+| 2 | **v2 + NWD + AMP = 稳定** | v2 完整模型用 NWD 损失 + AMP fp16 训练 25 epoch 零 NaN。NWD 比 GIoU 数值更稳定（基于高斯分布距离，无除法溢出风险） |
+| 3 | **fp32 不比 AMP 慢** | v1 fp32 训练 ~17 min/epoch，AMP 训练 ~22 min/epoch。纯 PyTorch 可变形注意力的 AMP 开销（NaN 检测 + scaler）反而拖慢速度 |
+| 4 | **NaN 保护机制** | train.py 已添加：NaN loss 跳过 + track_manager/mtuq_manager 状态重置 + try/except 异常捕获。TALA 匈牙利匹配前 nan_to_num 清理代价矩阵 |
+| 5 | **CUDA 编号 ≠ nvidia-smi 编号** | 本机 CUDA:0=4080S(32GB), CUDA:1=4080S(32GB), CUDA:2=4060Ti(16GB), CUDA:3=5060Ti(16GB)。用 `--device cuda:X` 指定 |
+| 6 | **Checkpoint 加载慢** | 从磁盘加载 465MB-939MB checkpoint 需要 3-7 分钟（D state），属正常 |
+| 7 | **建议训练配置** | v1: fp32 无 AMP；v2: AMP + NWD；所有实验: clip_length=2, batch_size=1, num_workers=2 |
+
+### 8.5 当前训练状态（2026-04-09 更新）
+
+**GPU 映射（nvidia-smi 实际编号，2026-04-09 确认）：**
+| GPU | 型号 | 显存 | 状态 |
+|-----|------|------|------|
+| cuda:0 | RTX 5060 Ti | 16GB | 空闲 |
+| cuda:1 | RTX 4060 Ti | 16GB | 其他项目占用 6.5GB |
+| cuda:2 | RTX 4080 SUPER | 32GB | v1 训练中 |
+| cuda:3 | RTX 4080 SUPER | 32GB | 空闲 |
+
+**正在运行：**
+- v1 base (Exp-A): `outputs_base/`, fp32 无 AMP, 从 epoch 10 resume, 当前 epoch 12+/200, loss ~5.0, 零 NaN, cuda:2 (4080S 32GB), ~17 min/epoch
+  - 预计剩余 ~53 小时（约 2.2 天）
+
+**已死亡（需恢复）：**
+- v2 full (Exp-D): `outputs_full/`, AMP, 进程在 epoch 30 iter 1 后 OOM 死亡。epoch 21→29 loss 1.85→1.74 收敛良好。最新 checkpoint: epoch 20
+  - Resume 命令: `cd DSITT && nohup python -u tools/train.py --config configs/dsitt_full.yaml --data_root data/rgbt_tiny --epochs 200 --amp --save_freq 10 --print_freq 50 --num_workers 2 --output_dir outputs_full --device cuda:3 --resume outputs_full/checkpoints/checkpoint_0020.pth > outputs_full_train.log 2>&1 &`
+  - 决策：等 v1 完成后再恢复
+
+**待启动（按顺序）：**
+1. v1+NWD (Exp-B): v1 完成后在同一 GPU 启动, `outputs_nwd/`, fp32
+2. v2 full (Exp-D): 恢复训练（从 epoch 20 checkpoint）
+3. 消融实验 (Abl-1~4): 所有主实验完成后
 
 ---
 
@@ -372,6 +408,14 @@ python tools/eval.py --config configs/dsitt_full.yaml --checkpoint outputs/check
 | 2026-04-07 | 修复 8.1#5：LR scheduler resume 鲁棒性 |
 | 2026-04-07 | 修复 8.1#6：CMC KL 全双向梯度 |
 | 2026-04-07 | SKILL 全面重构：第 8 章改为项目完成计划表，新增遗留注意事项、实验计划、下一步任务清单 |
+| 2026-04-08 | 8.2#1 数据准备完成：解压 RGBT-Tiny 至 data/rgbt_tiny/，验证 115 序列 (85 train + 30 test)，46701 帧 RGB+IR，431K 标注含 tracking_id，7 类，640×512 |
+| 2026-04-08 | 8.2#2 端到端冒烟测试完成：conda env dsitt (Python 3.10, PyTorch 2.11+cu130, RTX 4080 SUPER)，v2 full 真实数据 2 epoch 无报错，损失正常收敛 11→5，~1.1s/iter。修复 GradScaler/autocast FutureWarning |
+| 2026-04-08 | 8.2#3 v1 基线训练启动：dsitt_base.yaml, 单模态 IR, 200 epoch, AMP, cuda:0 (4080S 32GB)。修复所有配置 clip_schedule 为固定 clip_length=2 防 OOM。添加 stdout flush 修复 nohup 日志缓冲。输出目录 outputs_base/ |
+| 2026-04-08 | 8.2#5 v2 完整模型训练启动：dsitt_full.yaml, 双模态 both, 200 epoch, AMP, cuda:1 (4080S 32GB, 24.1GB 占用)。与 v1 并行训练。输出目录 outputs_full/ |
+| 2026-04-09 | v1 AMP NaN 问题：epoch 40+ GIoU+AMP 出现严重 NaN (>50% batch)。尝试降低 LR 无效。根因：可变形注意力 fp16 数值不稳定 |
+| 2026-04-09 | 修复 NaN 保护：TALA 代价矩阵 nan_to_num + 训练循环 NaN loss 跳过 + track state 重置 + try/except 异常捕获 |
+| 2026-04-09 | v1 base 从 epoch 10 fp32 重启，零 NaN，~17 min/epoch。v2 full 暂停 (epoch 25 checkpoint)，改为单 GPU 串行训练 |
+| 2026-04-09 | SKILL 新增 8.4 训练经验教训 + 8.5 当前训练状态。记录 CUDA 编号映射、AMP 兼容性、建议训练配置 |
 
 ---
 

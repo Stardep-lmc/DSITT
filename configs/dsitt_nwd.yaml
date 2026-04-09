@@ -49,15 +49,10 @@ train:
   optimizer: adamw
 
 # Training schedule
+# NOTE: clip_length > 2 causes OOM on 16GB GPU (see SKILL 8.1#6)
 clip_schedule:
   - epoch: 1
     clip_length: 2
-  - epoch: 50
-    clip_length: 3
-  - epoch: 90
-    clip_length: 4
-  - epoch: 150
-    clip_length: 5
 
 # Data
 data:
